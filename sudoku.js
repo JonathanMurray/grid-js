@@ -1,0 +1,215 @@
+"use strict";
+
+class Sudoku {
+    constructor(canvas, messageTag, {cellSize, xOffset, yOffset, startingNumbers}) {
+        console.assert(startingNumbers);
+
+        this.canvas = canvas;
+        this.messageTag = messageTag;
+        this.startingNumbers = startingNumbers;
+        this.grid = new Grid(canvas, {numColumns:9, numRows:9, cellSize, xOffset, yOffset});
+        const grid = this.grid;
+
+        for (let row = 0; row <= 9; row += 3) {
+            grid.lines.push([0, row, 9, row]);
+        }
+        for (let col = 0; col <= 9; col += 3) {
+            grid.lines.push([col, 0, col, 9]);
+        }
+
+        this.mouseCell;
+
+
+        grid.forEachCell((col, row) => {
+            const startingNumber = this.startingNumber(col, row);
+            if (startingNumber != null) {
+                grid.foregrounds[col][row] = "green";
+                grid.characters[col][row] = startingNumber;
+            }
+        });
+
+        grid.draw();
+    }
+
+    setFocused(focused) {
+
+    }
+
+    handleEvent(name, event) {
+        if (name == "mousemove") {
+            this.setMouseCell(this.grid.pixelToCell(event.offsetX, event.offsetY));
+        } else if (name == "click") {
+            const cell = this.grid.pixelToCell(event.offsetX, event.offsetY);
+            if (cell !== null) {
+                const [col, row] = cell;
+                if (this.startingNumber(col, row) == null) {
+                    delete this.grid.characters[col][row];
+                    this.grid.draw();
+                    this.validate();
+                }
+            }
+        } else if (name == "keydown") {
+            const NUMBERS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+            const isNumeric = NUMBERS.indexOf(event.key) > -1;
+            if (this.mouseCell != null && isNumeric && this.startingNumber(this.mouseCell[0], this.mouseCell[1]) == null) {
+                this.grid.characters[this.mouseCell[0]][this.mouseCell[1]] = event.key;
+                this.grid.draw();
+                this.validate();
+            }
+        } else if (name == "mouseout") {
+            this.setMouseCell(null);
+        }
+    }
+
+    setMouseCell(cell) {
+        this.mouseCell = cell;
+        this.grid.forEachCell((col, row) => delete this.grid.backgrounds[col][row]);
+        if (this.mouseCell !== null) {
+            let [col, row] = this.mouseCell;
+            this.grid.backgrounds[col][row] = "#AAFFFF";
+        } 
+        this.grid.draw();
+    }
+
+    startingNumber(col, row) {
+        if (col in this.startingNumbers && row in this.startingNumbers[col]) {
+            return this.startingNumbers[col][row];
+        }
+        return null;
+    }
+
+    validate() {
+        if (this.isValid()) {
+            this.messageTag.innerText = "...";
+        } else {
+            this.messageTag.innerText = "Incorrect solution! Duplicate found.";
+        }
+    }
+
+    isValid() {
+        // No repeated numbers in columns
+        for (let col = 0; col < 9; col ++) {
+            let chars = new Set();
+            for (let row = 0; row < 9; row ++) {
+                let ch = this.grid.characterAt(col, row);
+                if (ch != null) {
+                    if (chars.has(ch)) {
+                        return false;
+                    }
+                    chars.add(ch);
+                }
+            }
+        }
+
+        // No repeated numbers in rows
+        for (let row = 0; row < 9; row ++) {
+            let chars = new Set();
+            for (let col = 0; col < 9; col ++) {
+                let ch = this.grid.characterAt(col, row);
+                if (ch != null) {
+                    if (chars.has(ch)) {
+                        return false;
+                    }
+                    chars.add(ch);
+                }
+            }
+        }
+
+        // No repeated numbers in blocks
+        for (let col0 = 0; col0 < 9; col0 += 3) {
+            for (let row0 = 0; row0 < 9; row0 += 3) {
+                let chars = new Set();
+                for (let i = 0; i < 3; i++) {
+                    const col = col0 + i;
+                    for (let j = 0; j < 3; j++) {
+                        const row = row0 + j;
+                        let ch = this.grid.characterAt(col, row);
+                        if (ch != null) {
+                            if (chars.has(ch)) {
+                                return false;
+                            }
+                            chars.add(ch);
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+        
+    static parseSudoku(gridString) {
+        const startingNumbers = [];
+        for (let col = 0; col < 9; col ++) {
+            startingNumbers.push(new Array(9));
+        }
+
+        let template;
+
+        let row = 0;
+        let col = 0;
+
+        if (start.length == 325) {
+            template = "" +
+            "+ - - - + - - - + - - - +" +
+            "| x x x | x x x | x x x |" +
+            "| x x x | x x x | x x x |" +
+            "| x x x | x x x | x x x |" +
+            "+ - - - + - - - + - - - +" +
+            "| x x x | x x x | x x x |" +
+            "| x x x | x x x | x x x |" +
+            "| x x x | x x x | x x x |" +
+            "+ - - - + - - - + - - - +" +
+            "| x x x | x x x | x x x |" +
+            "| x x x | x x x | x x x |" +
+            "| x x x | x x x | x x x |" +
+            "+ - - - + - - - + - - - +";
+        } else if(start.length == 169) {
+            template = "" +
+            "+---+---+---+" +
+            "|xxx|xxx|xxx|" +
+            "|xxx|xxx|xxx|" +
+            "|xxx|xxx|xxx|" +
+            "+---+---+---+" +
+            "|xxx|xxx|xxx|" +
+            "|xxx|xxx|xxx|" +
+            "|xxx|xxx|xxx|" +
+            "+---+---+---+" +
+            "|xxx|xxx|xxx|" +
+            "|xxx|xxx|xxx|" +
+            "|xxx|xxx|xxx|" +
+            "+---+---+---+";
+        } else if (start.length == 81) {
+            template = "" +
+            "xxxxxxxxx" +
+            "xxxxxxxxx" +
+            "xxxxxxxxx" +
+            "xxxxxxxxx" +
+            "xxxxxxxxx" +
+            "xxxxxxxxx" +
+            "xxxxxxxxx" +
+            "xxxxxxxxx" +
+            "xxxxxxxxx";
+        }
+        console.assert(template, "Bad sudoku string", start);
+
+        for (let i = 0; i < start.length; i++) {
+            const ch = start.charAt(i);
+            const isNumeric = ch.charCodeAt() >= 49 && ch.charCodeAt() <= 57;
+            if (template.charAt(i) == 'x') {
+                if (isNumeric) {
+                    startingNumbers[col][row] = ch;
+                }
+                col ++;
+                if (col == 9) {
+                    col = 0;
+                    row ++;
+                }
+            }
+        } 
+        console.assert(row == 9, row);
+        return startingNumbers;
+    }
+
+}

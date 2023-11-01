@@ -1,0 +1,119 @@
+<html>
+<head>
+    <style>
+        canvas {
+            outline: none
+        }
+        canvas.focused {
+            outline:  dashed purple 2px;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <h1>Sudoku</h1>
+        <canvas id="sudoku-canvas" tabindex="0" width="250" height="250" style="border:1px solid #000000"></canvas>
+        <p id="message" style="font-weight: bold">...</p>
+    </div>
+    <div>
+        <h1>Editor</h1>
+        <canvas id="editor-canvas" tabindex="0" width="250" height="200" style="border:1px solid #000000"></canvas>
+    </div>
+    <div >
+        <h1>Snake</h1>
+        <canvas id="snake-canvas" tabindex="0" width="250" height="250" style="border:1px solid #000000"></canvas>
+    </div>
+</body>
+
+<script src="grid.js"></script>
+<script src="sudoku.js"></script>
+<script src="editor.js"></script>
+<script src="snake.js"></script>
+
+<script>
+
+const sudokuCanvas = document.getElementById("sudoku-canvas");
+const editorCanvas = document.getElementById("editor-canvas");
+const snakeCanvas = document.getElementById("snake-canvas");
+const sudokuMessage = document.getElementById("message");
+
+const start = "" +
+"+---+---+---+" +
+"|   |   |  5|" +
+"|7 6|4 1| 2 |" +
+"|5 9|7 3|48 |" +
+"+---+---+---+" +
+"|1  |3  | 7 |" +
+"| 2 |  8|5 9|" +
+"|4 3|2 9|8  |" +
+"+---+---+---+" +
+"| 72| 9 |   |" +
+"|   |  2| 97|" +
+"|9 5|81 |34 |" +
+"+---+---+---+";
+const startingNumbers = Sudoku.parseSudoku(start);
+const sudoku = new Sudoku(sudokuCanvas, sudokuMessage, {xOffset: 1, yOffset: 1, startingNumbers});
+
+const editor = new Editor(editorCanvas);
+
+const snake = new Snake(snakeCanvas);
+
+
+const widgets = [sudoku, editor, snake];
+let activeWidget = editor;
+
+setFocused(activeWidget, true);
+
+window.addEventListener("keydown", function(event) {
+    if (event.code == "Tab") {
+        event.preventDefault();
+    }
+});
+
+function setFocused(widget, focused) {
+    widget.setFocused(focused);
+    if (focused) {
+        widget.canvas.classList.add("focused");
+        widget.canvas.focus();
+    } else {
+        widget.canvas.classList.remove("focused");
+    }
+}
+
+for (widget of widgets) {
+    const capturedWidget = widget;  // capture the value for closure
+    widget.canvas.addEventListener("mousemove", function(event) {
+        if (activeWidget == capturedWidget) {
+            capturedWidget.handleEvent("mousemove", event);
+        }
+    });
+    widget.canvas.addEventListener("mouseout", function(event) {
+        if (activeWidget == capturedWidget) {
+            capturedWidget.handleEvent("mouseout", event);
+        }
+    });
+    widget.canvas.addEventListener("click", function(event) {
+        for (w of widgets) {
+            setFocused(w, w == capturedWidget);
+        }
+
+        if (activeWidget == capturedWidget) {
+            capturedWidget.handleEvent("click", event);
+        } else {
+            activeWidget = capturedWidget;
+        }
+    });
+    window.addEventListener("keydown", function(event) {
+        if (activeWidget == capturedWidget) {
+            capturedWidget.handleEvent("keydown", event);
+        }
+    });
+}
+
+
+
+
+</script>
+
+</html>
+
