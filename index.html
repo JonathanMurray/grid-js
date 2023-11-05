@@ -11,109 +11,92 @@
 </head>
 <body>
     <div>
-        <h1>Sudoku</h1>
-        <canvas id="sudoku-canvas" tabindex="0" width="250" height="250" style="border:1px solid #000000"></canvas>
-        <p id="message" style="font-weight: bold">...</p>
+        <canvas id="terminal-canvas" tabindex="0" width="500" height="200" style="border:1px solid #000000"></canvas>
     </div>
-    <div>
-        <h1>Editor</h1>
-        <canvas id="editor-canvas" tabindex="0" width="250" height="200" style="border:1px solid #000000"></canvas>
+    
+    <div id="program-window" hidden style="position: absolute; border: 2px solid lightgray; background: white; user-select: none;">
+        <div id="program-window-header" style="background:lightgray; font-family: system-ui; font-weight: bold;">
+            Program sandbox
+        </div>
+        <iframe id="program-iframe" sandbox="allow-scripts" src="sandboxed-program.html"></iframe>
     </div>
-    <div >
-        <h1>Snake</h1>
-        <canvas id="snake-canvas" tabindex="0" width="250" height="250" style="border:1px solid #000000"></canvas>
-    </div>
+
 </body>
 
 <script src="grid.js"></script>
-<script src="sudoku.js"></script>
-<script src="editor.js"></script>
-<script src="snake.js"></script>
+<script src="text-grid.js"></script>
+<script src="terminal.js"></script>
+<script src="system.js"></script>
 
 <script>
 
-const sudokuCanvas = document.getElementById("sudoku-canvas");
-const editorCanvas = document.getElementById("editor-canvas");
-const snakeCanvas = document.getElementById("snake-canvas");
-const sudokuMessage = document.getElementById("message");
+const canvas = document.getElementById("terminal-canvas");
 
-const start = "" +
-"+---+---+---+" +
-"|   |   |  5|" +
-"|7 6|4 1| 2 |" +
-"|5 9|7 3|48 |" +
-"+---+---+---+" +
-"|1  |3  | 7 |" +
-"| 2 |  8|5 9|" +
-"|4 3|2 9|8  |" +
-"+---+---+---+" +
-"| 72| 9 |   |" +
-"|   |  2| 97|" +
-"|9 5|81 |34 |" +
-"+---+---+---+";
-const startingNumbers = Sudoku.parseSudoku(start);
-const sudoku = new Sudoku(sudokuCanvas, sudokuMessage, {xOffset: 1, yOffset: 1, startingNumbers});
+const programIframe = document.getElementById("program-iframe");
 
-const editor = new Editor(editorCanvas);
+const system = new System();
 
-const snake = new Snake(snakeCanvas);
-
-
-const widgets = [sudoku, editor, snake];
-let activeWidget = editor;
-
-setFocused(activeWidget, true);
+const terminal = new Terminal(canvas, system);
+system.initTerminal(terminal);
 
 window.addEventListener("keydown", function(event) {
     if (event.code == "Tab") {
         event.preventDefault();
     }
+
+    if (event.key == "s" && event.ctrlKey) {
+        event.preventDefault();
+    }
 });
 
-function setFocused(widget, focused) {
-    widget.setFocused(focused);
-    if (focused) {
-        widget.canvas.classList.add("focused");
-        widget.canvas.focus();
-    } else {
-        widget.canvas.classList.remove("focused");
+terminal.setFocused(true);
+canvas.classList.add("focused");
+canvas.focus();
+
+window.addEventListener("keydown", function(event) {
+    system.handleEvent("keydown", event);
+});
+
+let draggingWindowOffset = null;
+
+const programContainer = document.getElementById("program-window");
+programContainer.addEventListener("mousedown", (event) => {
+    const left = parseInt(programContainer.style.left.replace("px", "")) || programContainer.getBoundingClientRect().x;
+    const top = parseInt(programContainer.style.top.replace("px", "")) || programContainer.getBoundingClientRect().y;
+    draggingWindowOffset = [event.x - left, event.y - top];
+
+    programIframe.focus();
+});
+
+window.addEventListener("mousemove", (event) => {
+    if (draggingWindowOffset != null) {
+        programContainer.style.left = event.x - draggingWindowOffset[0];
+        programContainer.style.top = event.y - draggingWindowOffset[1];
+
+        programIframe.focus();
     }
-}
+});
 
-for (widget of widgets) {
-    const capturedWidget = widget;  // capture the value for closure
-    widget.canvas.addEventListener("mousemove", function(event) {
-        if (activeWidget == capturedWidget) {
-            capturedWidget.handleEvent("mousemove", event);
-        }
-    });
-    widget.canvas.addEventListener("mouseout", function(event) {
-        if (activeWidget == capturedWidget) {
-            capturedWidget.handleEvent("mouseout", event);
-        }
-    });
-    widget.canvas.addEventListener("click", function(event) {
-        for (w of widgets) {
-            setFocused(w, w == capturedWidget);
-        }
+window.addEventListener("mouseup", (event) => {
+    if (draggingWindowOffset != null) {
+        draggingWindowOffset = null;
 
-        if (activeWidget == capturedWidget) {
-            capturedWidget.handleEvent("click", event);
-        } else {
-            activeWidget = capturedWidget;
-        }
-    });
-    window.addEventListener("keydown", function(event) {
-        if (activeWidget == capturedWidget) {
-            capturedWidget.handleEvent("keydown", event);
-        }
-    });
-}
+        programIframe.focus();
+    }
+});
 
-
-
+window.addEventListener("message", event => {
+    // Sandboxed programs send us syscalls from iframe
+    console.assert("syscall" in event.data);
+    const result = system.call(event.data.syscall.syscall, event.data.syscall.arg);
+    console.debug("syscall result", event.data.syscall.syscall, event.data.syscall.arg, result);
+    const iframe = document.getElementById("program-iframe");
+    iframe.contentWindow.postMessage({syscallResult: result}, "*");
+    console.debug("Sent syscall result to program iframe");
+});
 
 </script>
+
 
 </html>
 

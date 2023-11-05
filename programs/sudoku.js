@@ -1,13 +1,29 @@
 "use strict";
 
 class Sudoku {
-    constructor(canvas, messageTag, {cellSize, xOffset, yOffset, startingNumbers}) {
-        console.assert(startingNumbers);
+    constructor(canvas, syscalls, startingNumbers) {
+
+        if (startingNumbers == undefined) {
+            const start = "" +
+            "+---+---+---+" +
+            "|   |   |  5|" +
+            "|7 6|4 1| 2 |" +
+            "|5 9|7 3|48 |" +
+            "+---+---+---+" +
+            "|1  |3  | 7 |" +
+            "| 2 |  8|5 9|" +
+            "|4 3|2 9|8  |" +
+            "+---+---+---+" +
+            "| 72| 9 |   |" +
+            "|   |  2| 97|" +
+            "|9 5|81 |34 |" +
+            "+---+---+---+";
+            startingNumbers = Sudoku.parseSudoku(start);
+        }
 
         this.canvas = canvas;
-        this.messageTag = messageTag;
         this.startingNumbers = startingNumbers;
-        this.grid = new Grid(canvas, {numColumns:9, numRows:9, cellSize, xOffset, yOffset});
+        this.grid = new Grid(canvas, {numColumns:9, numRows:9, xOffset: 1, yOffset: 1});
         const grid = this.grid;
 
         for (let row = 0; row <= 9; row += 3) {
@@ -29,10 +45,6 @@ class Sudoku {
         });
 
         grid.draw();
-    }
-
-    setFocused(focused) {
-
     }
 
     handleEvent(name, event) {
@@ -80,9 +92,9 @@ class Sudoku {
 
     validate() {
         if (this.isValid()) {
-            this.messageTag.innerText = "...";
+            
         } else {
-            this.messageTag.innerText = "Incorrect solution! Duplicate found.";
+            console.log("Incorrect solution! Duplicate found.")
         }
     }
 
@@ -139,7 +151,7 @@ class Sudoku {
     }
 
         
-    static parseSudoku(gridString) {
+    static parseSudoku(start) {
         const startingNumbers = [];
         for (let col = 0; col < 9; col ++) {
             startingNumbers.push(new Array(9));
@@ -212,4 +224,47 @@ class Sudoku {
         return startingNumbers;
     }
 
+}
+
+
+async function main(args) {
+
+    let resolvePromise;
+    let programDonePromise = new Promise((r) => {resolvePromise = r;});
+
+    const size = [300, 300];
+
+    await syscalls.graphics({title: "Sudoku", size: [size[0] + 30, size[1] + 20]});
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size[0];
+    canvas.height = size[1];
+    canvas.style.outline = "1px solid black";
+    document.getElementsByTagName("body")[0].appendChild(canvas);
+
+    const app = new Sudoku(canvas, syscalls);
+
+    window.addEventListener("keydown", (event) => {
+        if (event.ctrlKey && event.key == "c") { 
+            syscalls.write(["Sudoku shutting down"]).finally(resolvePromise);
+        } else {
+            app.handleEvent("keydown", event);
+        }
+    });
+
+    window.addEventListener("click", (event) => {
+        app.handleEvent("click", event);
+    });
+
+    window.addEventListener("mousemove", (event) => {
+        app.handleEvent("mousemove", event);
+    });
+
+    window.addEventListener("mouseout", (event) => {
+        app.handleEvent("mouseout", event);
+    });
+
+
+
+    return programDonePromise;
 }

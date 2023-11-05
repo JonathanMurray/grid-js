@@ -10,7 +10,8 @@ class Snake {
     static FRAME_DURATION = 100;
     static MARGIN_TOP = 1;
 
-    constructor(canvas) {
+    constructor(canvas, syscalls) {
+        this.syscalls = syscalls;
         const grid = new Grid(canvas, {numColumns:16, numRows:16, xOffset:1, yOffset:1});
         this.grid = grid;
         this.canvas = canvas;
@@ -23,32 +24,34 @@ class Snake {
         grid.lines.push([grid.numColumns, Snake.MARGIN_TOP, grid.numColumns, grid.numRows]);
         grid.centerText = false;
 
+        this.startGame();
+        
+        this.previousTimestamp;
+        this.timeUntilNextFrame = Snake.FRAME_DURATION;
+        
+        const self = this;
+        window.requestAnimationFrame(timestamp => self.step(timestamp));
+
+        this.syscalls.write(["Use WASD or arrow keys for movement."]);
+    }
+
+    startGame() {
+        this.gameOver = false;
+        this.score = 0;
         this.snake = [[5, 5], [6, 5]];
         this.direction = Snake.RIGHT;
         this.commandedDirection = this.direction;
-        this.food = [8, 5];
-        this.score = 0;
+        this.food = this.findFreeCell();
         this.updateHeaderText();
-                
+
+        this.grid.forEachCell((col, row) => {
+            delete this.grid.backgrounds[col][row];
+        });
         for (let [col, row] of this.snake) {
             this.grid.backgrounds[col][row] = "red";
         }
         this.grid.backgrounds[this.food[0]][this.food[1]] = "green";
         this.grid.draw();
-
-        const self = this;
-
-        this.hasFocus = false;
-        this.gameOver = false;
-
-        this.previousTimestamp;
-        this.timeUntilNextFrame = Snake.FRAME_DURATION;
-        
-        window.requestAnimationFrame(timestamp => self.step(timestamp));
-    }
-
-    setFocused(focused) {
-        this.hasFocus = focused;
     }
 
     handleEvent(name, event) {
@@ -70,6 +73,10 @@ class Snake {
                 if (this.direction != Snake.UP) {
                     this.commandedDirection = Snake.DOWN;
                 }
+            }  else if (key == " ") {
+                if (this.gameOver) {
+                    this.startGame();
+                }
             } else {
                 console.log(key);
             }
@@ -84,7 +91,7 @@ class Snake {
 
     step(timestamp) {
         if (this.previousTimestamp != undefined) {
-            if (this.hasFocus && !this.gameOver) {
+            if (!this.gameOver) {
                 const elapsed = timestamp - this.previousTimestamp;
                 this.timeUntilNextFrame -= elapsed;
                 if (this.timeUntilNextFrame <= 0) {
@@ -109,6 +116,7 @@ class Snake {
         this.gameOver = true;
         this.updateHeaderText();
         this.grid.draw();
+        this.syscalls.write(["Game over. Press Space to play again."]);
     }
 
     runOneFrame() {
@@ -181,3 +189,30 @@ class Snake {
     }
 }
 
+async function main(args) {
+
+    let resolvePromise;
+    let programDonePromise = new Promise((r) => {resolvePromise = r;});
+
+    const size = [300, 300];
+
+    await syscalls.graphics({title: "Snake", size: [size[0] + 30, size[1] + 20]});
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size[0];
+    canvas.height = size[1];
+    canvas.style.outline = "1px solid black";
+    document.getElementsByTagName("body")[0].appendChild(canvas);
+    
+    const snake = new Snake(canvas, syscalls);
+
+    window.addEventListener("keydown", function(event) {
+        if (event.ctrlKey && event.key == "c") { 
+            syscalls.write(["Snake shutting down"]).finally(resolvePromise);
+        } else {
+            snake.handleEvent("keydown", event);
+        }
+    });
+
+    return programDonePromise;
+}
