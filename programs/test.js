@@ -2,6 +2,7 @@
 
 async function main(args) {
 
+    /*
     await syscalls.graphics({title: "Test program", size: [200, 100]});
 
     const element = document.createElement("p");
@@ -18,5 +19,12 @@ async function main(args) {
         syscalls.write(["I was clicked!"]);
     });
 
-    return new Promise((r) => {});
+    */
+
+    while (true) {
+        let input = await syscalls.read();
+        await syscalls.write(["You wrote: " + input]);
+    }
+
+    //return new Promise((r) => {});
 }

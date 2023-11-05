@@ -13,14 +13,6 @@
     <div>
         <canvas id="terminal-canvas" tabindex="0" width="500" height="200" style="border:1px solid #000000"></canvas>
     </div>
-    
-    <div id="program-window" hidden style="position: absolute; border: 2px solid lightgray; background: white; user-select: none;">
-        <div id="program-window-header" style="background:lightgray; font-family: system-ui; font-weight: bold;">
-            Program sandbox
-        </div>
-        <iframe id="program-iframe" sandbox="allow-scripts" src="sandboxed-program.html"></iframe>
-    </div>
-
 </body>
 
 <script src="grid.js"></script>
@@ -29,15 +21,6 @@
 <script src="system.js"></script>
 
 <script>
-
-const canvas = document.getElementById("terminal-canvas");
-
-const programIframe = document.getElementById("program-iframe");
-
-const system = new System();
-
-const terminal = new Terminal(canvas, system);
-system.initTerminal(terminal);
 
 window.addEventListener("keydown", function(event) {
     if (event.code == "Tab") {
@@ -49,6 +32,13 @@ window.addEventListener("keydown", function(event) {
     }
 });
 
+const canvas = document.getElementById("terminal-canvas");
+
+const system = new System();
+
+const terminal = new Terminal(canvas, system);
+system.initTerminal(terminal);
+
 terminal.setFocused(true);
 canvas.classList.add("focused");
 canvas.focus();
@@ -57,46 +47,18 @@ window.addEventListener("keydown", function(event) {
     system.handleEvent("keydown", event);
 });
 
-let draggingWindowOffset = null;
-
-const programContainer = document.getElementById("program-window");
-programContainer.addEventListener("mousedown", (event) => {
-    const left = parseInt(programContainer.style.left.replace("px", "")) || programContainer.getBoundingClientRect().x;
-    const top = parseInt(programContainer.style.top.replace("px", "")) || programContainer.getBoundingClientRect().y;
-    draggingWindowOffset = [event.x - left, event.y - top];
-
-    programIframe.focus();
-});
-
 window.addEventListener("mousemove", (event) => {
-    if (draggingWindowOffset != null) {
-        programContainer.style.left = event.x - draggingWindowOffset[0];
-        programContainer.style.top = event.y - draggingWindowOffset[1];
-
-        programIframe.focus();
-    }
+    system.handleEvent("mousemove", event);
 });
 
 window.addEventListener("mouseup", (event) => {
-    if (draggingWindowOffset != null) {
-        draggingWindowOffset = null;
-
-        programIframe.focus();
-    }
+    system.handleEvent("mouseup", event);
 });
 
 window.addEventListener("message", event => {
-    // Sandboxed programs send us syscalls from iframe
-    console.assert("syscall" in event.data);
-    const result = system.call(event.data.syscall.syscall, event.data.syscall.arg);
-    console.debug("syscall result", event.data.syscall.syscall, event.data.syscall.arg, result);
-    const iframe = document.getElementById("program-iframe");
-    iframe.contentWindow.postMessage({syscallResult: result}, "*");
-    console.debug("Sent syscall result to program iframe");
+    system.handleEvent("message", event);
 });
 
 </script>
 
-
 </html>
-

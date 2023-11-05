@@ -5,7 +5,9 @@
 <script>
     "use strict";
 
-    const SYSCALLS = ["write", "exit", "readFromFile", "graphics", "saveToFile"];
+    const SYSCALLS = ["read", "write", "exit", "readFromFile", "graphics", "saveToFile", "listFiles", "spawn", "kill", "waitForExit"];
+
+    let pid = null; // Set from message sent from system
 
     window.addEventListener("keydown", function(event) {
         if (event.code == "Tab") {
@@ -19,16 +21,19 @@
 
     console.log("Initializing program iframe ...");
 
-    let setSyscallResult;
-    let asyncSyscallResult = null;
+    let resolveSyscallPromise;
+    let rejectSyscallPromise;
 
     function asyncSyscall(syscall, arg) {
         console.debug("posting syscall...");
-        parent.postMessage({syscall: {syscall, arg}}, "*");
+        console.assert(pid != null, "pid must have been assigned");
+        parent.postMessage({syscall: {syscall, arg, pid}}, "*");
         console.debug("posted syscall...");
-        console.assert(setSyscallResult == null, "Concurrent syscalls are not allowed");
-        asyncSyscallResult = new Promise((resolve) => {
-            setSyscallResult = resolve;
+        console.assert(resolveSyscallPromise == null, "Concurrent syscalls are not allowed");
+        console.assert(rejectSyscallPromise == null, "Concurrent syscalls are not allowed");
+        const asyncSyscallResult = new Promise((resolve, reject) => {
+            resolveSyscallPromise = resolve;
+            rejectSyscallPromise = reject;
         });
         console.debug("created syscall promise...");
         
@@ -37,21 +42,11 @@
 
     // This object should appear exactly the same as the syscalls object provided by system.js
     const syscalls = {};
-    
     for (let name of SYSCALLS) {
         syscalls[name] = arg => asyncSyscall(name, arg)
     };
 
-    let eventHandler = null;
-    // This should be called from applications
-    function registerEventHandler(handler) {
-        eventHandler = handler;
-    }
-
     function runProgram(programCode, args) {
-        document.getElementById("program-code").remove();
-        const script = document.createElement("script");
-        script.setAttribute("id", "program-code");
 
         programCode = "try {\n" + 
         "  const args = " + JSON.stringify(args) + ";\n" +
@@ -63,39 +58,49 @@
         "  Promise.resolve(result)\n" + 
         "    .then((value) => { console.debug('Program result:', value); })\n" +
         "    .catch((e) => { syscalls.write(['Program crashed:'].concat(e.stack.split('\\n'))); })\n" +
-        "    .finally(() => { console.debug('exiting in finally'); syscalls.exit(); window.location.reload();})\n" +
+        "    .finally(() => { console.debug('exiting in finally'); syscalls.exit();})\n" +
         "} catch (e) {\n" +
         "  syscalls.write(['Program wrapper crashed:'].concat(e.stack.split('\\n')));\n" + 
         "  syscalls.exit();\n" + 
-        "  window.location.reload();\n" +
         "}\n";
 
         console.debug("Running in sandboxed iframe: ", programCode);
 
+        const script = document.createElement("script");
         script.text = programCode;
         document.getElementsByTagName("body")[0].appendChild(script);
     }
 
     window.addEventListener("message", message => {
 
-        if ("runProgram" in message.data) {
-            console.assert("code" in message.data.runProgram);
-            console.assert("args" in message.data.runProgram);
-            runProgram(message.data.runProgram.code, message.data.runProgram.args);
+        console.log("Sandboxed program received message:", message.data);
+
+        if ("startProcess" in message.data) {
+            console.assert("code" in message.data.startProcess);
+            console.assert("args" in message.data.startProcess);
+            console.assert("pid" in message.data.startProcess);
+            pid = message.data.startProcess.pid;
+            runProgram(message.data.startProcess.code, message.data.startProcess.args);
         } else if ("syscallResult" in message.data) {
-            let result = message.data.syscallResult;
-            console.debug("Received syscall result in iframe: ", result);
-            setSyscallResult(result);
-            setSyscallResult = null; // Allow for a new syscall to happen later
+            if ("success" in message.data.syscallResult) {
+                let result = message.data.syscallResult.success;
+                console.debug("Received syscall result in iframe: ", result);
+                resolveSyscallPromise(result);
+                 // Allow for a new syscall to happen later
+                resolveSyscallPromise = null;
+                rejectSyscallPromise = null;
+            } else {
+                console.assert("error" in message.data.syscallResult);
+                let error = message.data.syscallResult.error;
+                console.log("Received syscall error in iframe: ", error);
+                rejectSyscallPromise(error);
+                 // Allow for a new syscall to happen later
+                resolveSyscallPromise = null;
+                rejectSyscallPromise = null;
+            }
         } else {
-            console.assert("killProgram" in message.data);
-            console.debug("reloading iframe...");
-            window.location.reload();
-            console.debug("reloaded iframe.");
+            console.error("Unhandled message in program iframe", message.data);
         }
     });
 
 </script>
-    
-
-<script id="program-code"></script>

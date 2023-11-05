@@ -9,6 +9,9 @@ class Terminal {
         this.canvas = canvas;
 
         this.text.setTextStyle("blue");
+
+        this.inputBuffer = "";
+        this.inputIndex = 0;
     }
 
     setTextStyle(style) {
@@ -26,7 +29,6 @@ class Terminal {
     handleEvent(name, event) {
         if (name == "keydown") {
             const key = event.key;
-
             if(event.ctrlKey && key == "c") {
                 this.ctrlC();
             } else if (key == "Backspace") {
@@ -51,11 +53,18 @@ class Terminal {
 
     insertKey(key) {
         this.text.insertCharInLine(key);
+        
+        this.inputBuffer = this.inputBuffer.slice(0, this.inputIndex) + key + this.inputBuffer.slice(this.inputIndex);
+        this.inputIndex ++;
     }
 
     backspace() {
         if (this.text.cursorChar > Terminal.PROMPT.length) {
             this.text.eraseInLine();
+        }
+
+        if (this.inputIndex > 0) {
+            this.inputBuffer = this.inputBuffer.slice(0, this.inputIndex - 1) + this.inputBuffer.slice(this.inputIndex);
         }
     }
 
@@ -87,33 +96,44 @@ class Terminal {
     ctrlC() {
         this.printOutput(["^C"])
         this.printPrompt();
+
+        this.inputBuffer = "";
+        this.inputIndex = 0;
     }
 
     submitLine() {
-        const input = this.text.lines[this.text.lines.length - 1].slice(Terminal.PROMPT.length);
         this.pushNewLine();
-
-        const words = input.split(' ').filter(w => w !== '');
-        this.system.handleInput(words);
+        this.system.handleInput(this.inputBuffer);
+        this.inputBuffer = "";
+        this.inputIndex = 0;
     }
 
     moveRight() {
         if (this.text.cursorChar < this.text.lines[this.text.lines.length - 1].length) {
             this.text.cursorChar ++;
         }
+
+        this.inputIndex = Math.min(this.inputIndex + 1, this.inputBuffer.length - 1);
     }
 
     moveLeft() {
         if (this.text.cursorChar > Terminal.PROMPT.length) {
             this.text.cursorChar --;
         }
+
+        this.inputIndex = Math.max(this.inputIndex - 1, 0);
     }
 
     moveToStartOfLine() {
+        // TODO: account for prompt
         this.text.moveToStartOfLine();
+
+        this.inputIndex = 0;
     }
 
     moveToEndOfLine() {
         this.text.moveToEndOfLine();
+
+        this.inputIndex = this.inputBuffer.length - 1;
     }
 }
