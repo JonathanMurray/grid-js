@@ -14,6 +14,18 @@ class Terminal {
         this.inputIndex = 0;
     }
 
+    control(arg) {
+        if ("printPrompt" in arg) {
+            this.printPrompt();
+        } else if ("setTextStyle" in arg) {
+            this.setTextStyle(arg.setTextStyle);
+        } else if ("setBackgroundStyle" in arg) {
+            this.setBackgroundStyle(arg.setBackgroundStyle);
+        } else {
+            console.error("Unhandled terminal control argument", arg);
+        }
+    }
+
     setTextStyle(style) {
         this.text.setTextStyle(style);
     }

@@ -33,31 +33,29 @@ window.addEventListener("keydown", function(event) {
 });
 
 const canvas = document.getElementById("terminal-canvas");
-
-const system = new System();
-
-const terminal = new Terminal(canvas, system);
-system.initTerminal(terminal);
-
-terminal.setFocused(true);
 canvas.classList.add("focused");
 canvas.focus();
 
-window.addEventListener("keydown", function(event) {
-    system.handleEvent("keydown", event);
+System.init(canvas).then((system) => {
+    console.log("System initialised. Setting up window event listeners...");
+    window.addEventListener("keydown", function(event) {
+        system.handleEvent("keydown", event);
+    });
+
+    window.addEventListener("mousemove", (event) => {
+        system.handleEvent("mousemove", event);
+    });
+
+    window.addEventListener("mouseup", (event) => {
+        system.handleEvent("mouseup", event);
+    });
+
+    window.addEventListener("message", event => {
+        system.handleEvent("message", event);
+    });
 });
 
-window.addEventListener("mousemove", (event) => {
-    system.handleEvent("mousemove", event);
-});
 
-window.addEventListener("mouseup", (event) => {
-    system.handleEvent("mouseup", event);
-});
-
-window.addEventListener("message", event => {
-    system.handleEvent("message", event);
-});
 
 </script>
 

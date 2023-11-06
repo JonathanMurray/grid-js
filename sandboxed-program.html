@@ -5,7 +5,8 @@
 <script>
     "use strict";
 
-    const SYSCALLS = ["read", "write", "exit", "readFromFile", "graphics", "saveToFile", "listFiles", "spawn", "kill", "waitForExit"];
+    const SYSCALLS = ["read", "write", "exit", "readFromFile", "graphics", "saveToFile", 
+        "listFiles", "spawn", "kill", "waitForExit", "controlTerminal", "listProcesses"];
 
     let pid = null; // Set from message sent from system
 
@@ -73,7 +74,7 @@
 
     window.addEventListener("message", message => {
 
-        console.log("Sandboxed program received message:", message.data);
+        console.debug("Sandboxed program received message:", message.data);
 
         if ("startProcess" in message.data) {
             console.assert("code" in message.data.startProcess);

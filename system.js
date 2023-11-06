@@ -16,50 +16,68 @@ class System {
         
         this.maxZIndex = 1;
 
-        this.files = {
-            "textfile": ["first line", "", "third line"],
-            "empty": ["<script>", "function main() {}"],
-            "log": ["<script>", "async function main(args) { console.log(args); }"],
-            "print": ["<script>", "async function main(args) { await syscalls.write(args); }"],
-        };
-
-        const programs = [
-            "countdown", "cat", "test", "snake", "animation", "editor", "sudoku", "plot", "ls", "time", "launcher"
-        ];
-
-        for (let program of programs) {
-            this.initProgramFile(program);    
-        }
+        this.files = {}
 
         this.draggingWindow = null;
 
         this.stdIn = new Input();
     }
 
-    async initProgramFile(programName) {
-        const response = await fetch("programs/" + programName + ".js", {});
-        let code = await response.text();
-        code = "<script>\n" + code;
-        this.files[programName] = code.split("\n");
-    }
+    static async init(canvas) {
 
-    async call(syscall, arg, pid) {
-        console.assert(syscall in this.syscalls, "Syscall does not exist: " + syscall);
-        return await this.syscalls[syscall](arg, pid);
-    }
+        const system = new System();
 
-    initTerminal(terminal) {
-        console.assert(this.terminal == null);
-        this.terminal = terminal;
+        const terminal = new Terminal(canvas, system);
+        system.terminal = terminal;
 
         const now = new Date();
-        this.printOutput([
+        system.printOutput([
             "~ Welcome! ~",
             "------------",
             `Current time: ${now.getHours()}:${now.getMinutes()}`, 
             "Type help to get started."
         ]);
-        this.terminal.printPrompt();
+        
+        terminal.setFocused(true);
+
+        const programs = [
+            "countdown", "cat", "test", "snake", "animation", "editor", "sudoku", "plot", 
+            "ls", "time", "launcher", "shell"
+        ];
+
+        let files = {
+            "textfile": ["first line", "", "third line"],
+            "empty": ["<script>", "function main() {}"],
+            "log": ["<script>", "async function main(args) { console.log(args); }"],
+            "print": ["<script>", "async function main(args) { await syscalls.write(args); }"],
+        };
+
+        for (let program of programs) {
+            const lines = await System.fetchProgram(program);    
+            files[program] = lines;
+        }
+
+
+        system.files = files;
+
+        const shellPid = system.spawnProcess({programName:"shell", args:["shell"], 
+            inputStream:system.stdIn, parentPid:null});
+        system.setForegroundProcess(shellPid);
+
+        return system;
+    }
+
+
+    static async fetchProgram(programName) {
+        const response = await fetch("programs/" + programName + ".js", {});
+        let code = await response.text();
+        code = "<script>\n" + code;
+        return code.split("\n");
+    }
+
+    async call(syscall, arg, pid) {
+        console.assert(syscall in this.syscalls, "Syscall does not exist: " + syscall);
+        return await this.syscalls[syscall](arg, pid);
     }
 
     moveToFront(element) {
@@ -76,17 +94,15 @@ class System {
 
     handleEvent(name, event) {
         if (name == "keydown") {
-            if (this.foregroundProcess != null) {
-                if (event.ctrlKey && event.key == "c") {
-                    this.onProcessExit(this.foregroundProcess.pid);
-                } else {
-                    // The terminal accepts the input, but when it's submitted to the system it will be handed over to the 
-                    // foreground process
-                    this.terminal.handleEvent(name, event);
-                }
+
+            if (event.ctrlKey && event.key == "c" && this.foregroundProcess.parentPid != null) {
+                console.log("EXITING")
+                this.printOutput(["^C"]);
+                this.onProcessExit(this.foregroundProcess.pid);
             } else {
                 this.terminal.handleEvent(name, event);
             }
+
         } else if (name == "mousemove") {
             if (this.draggingWindow != null) {
                 const {element, iframe, offset} = this.draggingWindow;
@@ -112,19 +128,23 @@ class System {
                 if (programWindow) {
                     const iframe = programWindow.getElementsByTagName("iframe")[0];
                     iframe.contentWindow.postMessage({syscallResult: {success: result}}, "*");
-                    console.log("Sent syscall result to program iframe");
+                    console.debug("Sent syscall result to program iframe");
                 } else {
                     console.log("Cannot send syscall to process. It has no window. It must have shut down itself already.");
                 }
             }).catch((error) => {
-                console.log("syscall error", event.data.syscall.syscall, event.data.syscall.arg, pid, error);
-                const programWindow = document.getElementById("program-window-" + pid);
-                if (programWindow) {
-                    const iframe = programWindow.getElementsByTagName("iframe")[0];
-                    iframe.contentWindow.postMessage({syscallResult: {error}}, "*");
-                    console.log("Sent syscall error to program iframe");
+                if (error instanceof SyscallError) {
+                    console.log("syscall error", event.data.syscall.syscall, event.data.syscall.arg, pid, error);
+                    const programWindow = document.getElementById("program-window-" + pid);
+                    if (programWindow) {
+                        const iframe = programWindow.getElementsByTagName("iframe")[0];
+                        iframe.contentWindow.postMessage({syscallResult: {error}}, "*");
+                        console.debug("Sent syscall error to program iframe");
+                    } else {
+                        console.log("Cannot send syscall error to process. It has no window. It must have shut down itself already.");
+                    }
                 } else {
-                    console.log("Cannot send syscall error to process. It has no window. It must have shut down itself already.");
+                    console.error("Unexpected error from syscall:", error);
                 }
             });
             
@@ -134,112 +154,14 @@ class System {
     }
 
     handleInput(input) {
-
-        if (this.foregroundProcess != null) {
-            this.stdIn.pushInputLine(input);
-            console.log("Pushed input to stdin");
-            return;
-        }
-
-        const words = input.split(' ').filter(w => w !== '');
-
-        if (words.length == 0) {
-            this.terminal.printPrompt();
-            return;
-        } 
-
-        const command = words[0];
-        if (command == "help") {
-            this.printOutput([
-                "Example commands:", 
-                "-------------------",
-                "editor:     text editor", 
-                "sudoku:     mouse-based game", 
-                "time:       show current time",
-                "fg <color>: change terminal text color",
-                "bg <color>: change terminal background color"
-            ]);
-            this.terminal.printPrompt();
-            return;
-        } else if (command == "fg") {
-            if (words.length >= 2) {
-                this.terminal.setTextStyle(words[1]);
-            } else {
-                this.printOutput(["<missing color argument>"]);
-            }
-            this.terminal.printPrompt();
-            return;
-        } else if (command == "bg") {
-            if (words.length >= 2) {
-                this.terminal.setBackgroundStyle(words[1]);
-            } else {
-                this.printOutput(["<missing color argument>"]);
-            }
-            this.terminal.printPrompt();
-            return;
-        } else if (command == "ps") {
-            const pids = Object.keys(this.processes);
-            if (pids.length > 0) {
-                this.printOutput(["parent  pid     program"])
-                for (let pid of pids) {
-                    const proc = this.processes[pid];
-                    this.printOutput([proc.parentPid + "       " + pid + "       " + proc.args[0]])
-                }
-            } else {
-                this.printOutput(["<no running processes>"]);
-            }
-            this.terminal.printPrompt();
-            return;
-        } else if (command == "kill") {
-            if (words.length >= 2) {
-                const pid = words[1];
-                try {
-                    this.kill(pid);
-                } catch (e) {
-                    this.printOutput(["<" + e.message + ">"]);
-                }
-            } else {
-                this.printOutput(["<missing pid argument>"]);
-            }
-            this.terminal.printPrompt();
-            return;
-        }
-
-        if (command in this.files) {
-            try {
-
-                const runInBackground = words.slice(-1)[0] == "&";
-                let args;
-                if (runInBackground) {
-                    args = words.slice(0, -1);
-                    console.log("Starting program in background");
-                } else {
-                    args = words;
-                }
-
-                const shellPid = 0;
-                const pid = this.spawn(command, args, this.stdIn, shellPid);
-
-                if (!runInBackground) {
-                    this.foregroundProcess = this.processes[pid];
-                }
-
-            } catch (e) {
-                this.printOutput(["<" + e.message + ">"]);
-                this.terminal.printPrompt();
-            }
-            return;
-        }
-
-        this.printOutput(["Unknown command. Try typing: help"]);
-        this.terminal.printPrompt();
+        this.stdIn.pushInputLine(input);
     }
 
     kill(pid) {
         if (pid in this.processes) {
             this.onProcessExit(pid);
         } else {
-            throw new Error("no such process");
+            throw new SyscallError("no such process");
         }
     }
 
@@ -249,14 +171,29 @@ class System {
 
     async readInput(pid) {
         const proc = this.processes[pid];
-        console.assert(proc != undefined, "Cannot read input in non-existent process " + pid + ". Current pids: " + Object.keys(this.processes));
-        if (proc.inputStream != undefined) {
-            return await proc.inputStream.readLine();
+
+        if (proc.inputStream == undefined) {
+            throw new SyscallError("process has no input stream");
         }
-        throw Error("process has no stdin");
+
+        let resolvePromise;
+        let promise = new Promise((r) => resolvePromise = r);
+        const self = this;
+        proc.inputStream.waitForLine((line) => {
+            const proc = self.processes[pid];
+            if (proc == undefined) {
+                console.log("The process that wanted to read the line doesn't exist anymore.");
+                return false; // signal that some other process should get the line
+            }
+
+            resolvePromise(line);
+            return true; // signal that we consumed the line
+        });
+
+        return promise;
     }
 
-    spawn(programName, args, stdIn, parentPid) {
+    spawnProcess({programName, args, inputStream, parentPid}) {
         if (programName in this.files) {
             const lines = this.files[programName];
             if (lines[0] == "<script>") {
@@ -264,15 +201,20 @@ class System {
                 const pid = this.nextPid;
                 this.nextPid ++;
 
-                const proc = new Process(code, args, this, pid, stdIn, parentPid);
+                const proc = new Process(code, args, this, pid, inputStream, parentPid);
                 this.processes[pid] = proc;
                 proc.start(); // We make sure that the pid is in the process table before the program starts running
 
                 return pid;
             }
-            throw Error("file is not runnable");
+            throw Error("file is not runnable: " + programName);
         }
-        throw Error("no such program file");
+        throw Error("no such program file: " + programName);
+    }
+
+    setForegroundProcess(pid) {
+        console.assert(pid in this.processes, "process not found: " + pid + ". processes: " + Object.keys(this.processes));
+        this.foregroundProcess = this.processes[pid];
     }
 
     onProcessExit(pid) {
@@ -282,14 +224,16 @@ class System {
         delete this.processes[pid];
         proc.onExit();
         if (this.foregroundProcess == proc) {
-            this.foregroundProcess = null;
             console.log("The removed process was in foreground.");
+
+            const parent = this.processes[proc.parentPid];
+            console.assert(parent, "killed foregrounded process must have had a parent");
+            console.log("New foregrounded process: ", parent.pid);
+            this.foregroundProcess = parent;
 
             this.terminal.setFocused(true);
             this.terminal.canvas.classList.add("focused");
             this.terminal.canvas.focus();
-
-            this.terminal.printPrompt();
         }
     }
 
@@ -305,12 +249,15 @@ class System {
     }
 }
 
+
 class Process {
 
     constructor(code, args, system, pid, inputStream, parentPid) {
+        console.assert(args != undefined);
         this.code = code;
         this.pid = pid;
         this.args = args;
+        console.log("New process. input= ", inputStream);
         this.inputStream = inputStream;
         this.exitWaiters = [];
         this.system = system;
@@ -376,20 +323,35 @@ class Syscalls {
         this.system = system;
     }
 
+    async listProcesses(arg, pid) {
+        let procs = [];
+        for (let pid of Object.keys(this.system.processes)) {
+            const proc = this.system.processes[pid];
+            const isInForeground = this.system.foregroundProcess == proc;
+            procs.push({pid, parentPid: proc.parentPid, programName: proc.args[0], isInForeground});
+        }
+        return procs;
+    }
+
+    async controlTerminal(arg, pid) {
+        // TODO this syscall should only be allowed for a process that is the current owner of the terminal
+        return this.system.terminal.control(arg);
+    }
+
     async exit(arg, pid) {
         console.assert(pid != undefined);
-        this.system.onProcessExit(pid);
+        return this.system.onProcessExit(pid);
     }
 
     async kill(pidToKill, pid) {
         if (pidToKill == pid) {
-            throw new Error("process cannot kill itself");
+            throw new SyscallError("process cannot kill itself");
         }
-        this.system.kill(pidToKill);
+        return this.system.kill(pidToKill);
     }
 
     async write(output, pid) {
-        this.system.printOutput(output);
+        return this.system.printOutput(output);
     }
 
     async read(arg, pid) {
@@ -402,16 +364,35 @@ class Syscalls {
 
     async saveToFile({lines, fileName}, pid) {
         console.assert(fileName, "Must provide filename when saving to file");
-        this.system.saveLinesToFile(lines, fileName);
+        return this.system.saveLinesToFile(lines, fileName);
     }
 
     async readFromFile(fileName, pid) {
         return this.system.readLinesFromFile(fileName);
     }
 
-    async spawn(programName, pid) {
-        const inputStream = this.system.processes[pid].inputStream; // Inherit input stream from parent
-        return this.system.spawn(programName, [programName], inputStream, pid);
+    async spawn({program, args, detached}, parentPid) {
+        let inputStream;
+
+        const parent = this.system.processes[parentPid];
+        
+        const wasParentForeground = this.system.foregroundProcess == parent;
+
+        if (detached) {
+            inputStream = new Input();
+        } else {
+            inputStream = parent.inputStream; // Inherit input stream from parent
+        }
+        console.log("Spawning new process, from parent " + parentPid + ". Input stream: ", inputStream, " ARGS: ", args);
+
+        const childPid = await this.system.spawnProcess({programName:program, args:[program].concat(args), 
+                inputStream, parentPid});
+
+        if (wasParentForeground && !detached) {
+            this.system.setForegroundProcess(childPid);
+        }
+
+        return childPid;
     }
 
     async waitForExit(pidToWaitFor, pid) {
@@ -452,33 +433,44 @@ class Input {
         this.inputWaiters = [];
     }
     
-    async readLine() {
+    async waitForLine(consumer) {
         const line = this.bufferedInput.shift();
         if (line != undefined) {
             console.log("Got input immediately:", line);
-            return line;
+            consumer(line);
+            return;
         }
 
         console.log("Registering waiter for input");
 
         // No input exists yet. We must wait for it.
-        let resolvePromise;
-        const asyncInputResult = new Promise((r) => resolvePromise = r);
-        this.inputWaiters.push((line) => resolvePromise(line));
-        return asyncInputResult;
+        this.inputWaiters.push(consumer);
     }
 
     pushInputLine(line) {
-        const waiter = this.inputWaiters.shift();
-        if (waiter != undefined) {
-            console.log("Giving input to water", line);
-            waiter(line);
-            return;
+        let consumer = this.inputWaiters.shift();
+        while (consumer != undefined) {
+            const didConsume = consumer(line);
+            if (didConsume) {
+                console.log("A waiter consumed the input:", line);
+                return;
+            } else {
+                // This waiter ended up not consuming the input. Probably its corresponding process has exited since it made the
+                // read syscall. Then another process needs to be given the line instead.
+                consumer = this.inputWaiters.shift();
+            }
         }
 
-        console.log("No waiter. Buffering input.", line);
+        console.log("No waiter. Buffering input:", line);
 
         // Noone is currently waiting for input. We must buffer it.
         this.bufferedInput.push(line);
+    }
+}
+
+class SyscallError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "SyscallError";
     }
 }

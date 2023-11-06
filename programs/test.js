@@ -21,10 +21,28 @@ async function main(args) {
 
     */
 
+    /*
     while (true) {
         let input = await syscalls.read();
         await syscalls.write(["You wrote: " + input]);
     }
+    */
+
+    const pid1 = await syscalls.spawn({program: "countdown", args: ["4"]});
+
+    const pid2 = await syscalls.spawn({program: "countdown", args: ["6"]});
+
+    await syscalls.write(["WAITING FOR COUNTDOWN1 TO FINISH"]);
+    await syscalls.waitForExit(pid1);
+    await syscalls.write(["COUNTDOWN1 FINISHED"]);
+
+    await syscalls.write(["WAITING FOR COUNTDOWN2 TO FINISH"]);
+    await syscalls.waitForExit(pid2);
+    await syscalls.write(["COUNTDOWN2 FINISHED"]);
+
+    const line = await syscalls.read();
+
+    await syscalls.write(["YOU WROTE: " + line]);
 
     //return new Promise((r) => {});
 }

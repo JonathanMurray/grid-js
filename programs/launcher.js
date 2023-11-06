@@ -6,8 +6,8 @@ async function main(args) {
 
     let pids = [];
 
-    pids.push(await syscalls.spawn("sudoku"));
-    pids.push(await syscalls.spawn("snake"));
+    pids.push(await syscalls.spawn({program: "sudoku"}));
+    pids.push(await syscalls.spawn({program: "snake"}));
     
     await syscalls.write(["Launched: " + pids]);
 
