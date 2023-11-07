@@ -10,8 +10,7 @@ class Snake {
     static FRAME_DURATION = 100;
     static MARGIN_TOP = 1;
 
-    constructor(canvas, syscalls) {
-        this.syscalls = syscalls;
+    constructor(canvas) {
         const grid = new Grid(canvas, {numColumns:16, numRows:16, xOffset:1, yOffset:1});
         this.grid = grid;
         this.canvas = canvas;
@@ -32,7 +31,7 @@ class Snake {
         const self = this;
         window.requestAnimationFrame(timestamp => self.step(timestamp));
 
-        this.syscalls.write(["Use WASD or arrow keys for movement."]);
+        writeln("Use WASD or arrow keys for movement.");
     }
 
     startGame() {
@@ -116,7 +115,7 @@ class Snake {
         this.gameOver = true;
         this.updateHeaderText();
         this.grid.draw();
-        this.syscalls.write(["Game over. Press Space to play again."]);
+        writeln("Game over. Press Space to play again.");
     }
 
     runOneFrame() {
@@ -196,7 +195,7 @@ async function main(args) {
 
     const size = [300, 300];
 
-    await syscalls.graphics({title: "Snake", size: [size[0] + 30, size[1] + 20]});
+    await syscall("graphics", {title: "Snake", size: [size[0] + 30, size[1] + 20]});
 
     const canvas = document.createElement("canvas");
     canvas.width = size[0];
@@ -204,11 +203,11 @@ async function main(args) {
     canvas.style.outline = "1px solid black";
     document.getElementsByTagName("body")[0].appendChild(canvas);
     
-    const snake = new Snake(canvas, syscalls);
+    const snake = new Snake(canvas);
 
     window.addEventListener("keydown", function(event) {
         if (event.ctrlKey && event.key == "c") { 
-            syscalls.write(["Snake shutting down"]).finally(resolvePromise);
+            writeln("Snake shutting down").finally(resolvePromise);
         } else {
             snake.handleEvent("keydown", event);
         }

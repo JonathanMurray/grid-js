@@ -1,11 +1,13 @@
 "use strict";
 
+const STDOUT = 1;
+
 async function main(args) {
-    const fileNames = await syscalls.listFiles();
+    const fileNames = await syscall("listFiles");
     if (fileNames.length > 0) {
-        await syscalls.write(fileNames);
+        await syscall("write", {output: fileNames, streamId: STDOUT});
     } else {
-        await syscalls.write(["<no files>"]);
+        await writeln("<no files>");
     }
 }
 

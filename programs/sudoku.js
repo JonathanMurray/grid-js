@@ -1,7 +1,7 @@
 "use strict";
 
 class Sudoku {
-    constructor(canvas, syscalls, startingNumbers) {
+    constructor(canvas, startingNumbers) {
 
         if (startingNumbers == undefined) {
             const start = "" +
@@ -234,7 +234,7 @@ async function main(args) {
 
     const size = [300, 300];
 
-    await syscalls.graphics({title: "Sudoku", size: [size[0] + 30, size[1] + 20]});
+    await syscall("graphics", {title: "Sudoku", size: [size[0] + 30, size[1] + 20]});
 
     const canvas = document.createElement("canvas");
     canvas.width = size[0];
@@ -242,11 +242,11 @@ async function main(args) {
     canvas.style.outline = "1px solid black";
     document.getElementsByTagName("body")[0].appendChild(canvas);
 
-    const app = new Sudoku(canvas, syscalls);
+    const app = new Sudoku(canvas);
 
     window.addEventListener("keydown", (event) => {
         if (event.ctrlKey && event.key == "c") { 
-            syscalls.write(["Sudoku shutting down"]).finally(resolvePromise);
+            writeln("Sudoku shutting down").finally(resolvePromise);
         } else {
             app.handleEvent("keydown", event);
         }

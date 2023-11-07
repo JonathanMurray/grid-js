@@ -1,23 +1,18 @@
 <html>
 <head>
     <style>
-        canvas {
+        .program-window {
             outline: none
         }
-        canvas.focused {
-            outline:  dashed purple 2px;
+        .program-window.focused {
+            outline: solid gold 2px;
         }
     </style>
 </head>
 <body>
-    <div>
-        <canvas id="terminal-canvas" tabindex="0" width="500" height="200" style="border:1px solid #000000"></canvas>
-    </div>
+ 
 </body>
 
-<script src="grid.js"></script>
-<script src="text-grid.js"></script>
-<script src="terminal.js"></script>
 <script src="system.js"></script>
 
 <script>
@@ -32,11 +27,8 @@ window.addEventListener("keydown", function(event) {
     }
 });
 
-const canvas = document.getElementById("terminal-canvas");
-canvas.classList.add("focused");
-canvas.focus();
 
-System.init(canvas).then((system) => {
+System.init().then((system) => {
     console.log("System initialised. Setting up window event listeners...");
     window.addEventListener("keydown", function(event) {
         system.handleEvent("keydown", event);

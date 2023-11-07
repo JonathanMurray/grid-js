@@ -1,26 +1,34 @@
 "use strict";
 
+
+const STDOUT = 1;
+const COMMAND_STREAM = 2;
+
 async function printPrompt() {
-    await syscalls.controlTerminal({printPrompt: null});
+    await syscall("write", {output: [JSON.stringify({printPrompt: null})], streamId: COMMAND_STREAM});
 }
 
 async function setTextStyle(style) {
-    await syscalls.controlTerminal({setTextStyle: style});
+    await syscall("write", {output: [JSON.stringify({setTextStyle: style})], streamId: COMMAND_STREAM});
 }
 
 async function setBackgroundStyle(style) {
-    await syscalls.controlTerminal({setBackgroundStyle: style});
+    await syscall("write", {output: [JSON.stringify({setBackgroundStyle: style})], streamId: COMMAND_STREAM});
 }
 
 async function main(args) {
 
-    await syscalls.write([""]);
-    await syscalls.write(["[WELCOME TO THE SHELL]"]);
+    await syscall("ignoreInterruptSignal");
+
+    await setTextStyle("#0F0");
+    await setBackgroundStyle("black");
+
+    await writeln("[WELCOME TO THE SHELL]");
 
     while (true) {
         await printPrompt();
 
-        const input = await syscalls.read();
+        const input = await readln();
 
         const words = input.split(' ').filter(w => w !== '');
 
@@ -30,7 +38,7 @@ async function main(args) {
         
         const command = words[0];
         if (command == "help") {
-            await syscalls.write([
+            await syscall("write", {output:[
                 "Example commands:", 
                 "-------------------",
                 "editor:     text editor", 
@@ -38,46 +46,44 @@ async function main(args) {
                 "time:       show current time",
                 "fg <color>: change terminal text color",
                 "bg <color>: change terminal background color"
-            ]);
+            ], streamId:STDOUT});
         }  else if (command == "fg") {
             if (words.length >= 2) {
                 await setTextStyle(words[1]);
             } else {
-                await syscalls.write(["<missing color argument>"]);
+                await writeln("<missing color argument>");
             }
         } else if (command == "bg") {
             if (words.length >= 2) {
                 await setBackgroundStyle(words[1]);
             } else {
-                await syscalls.write(["<missing color argument>"]);
+                await writeln("<missing color argument>");
             }
         } else if (command == "ps") {
-            const procs = await syscalls.listProcesses();
+            const procs = await syscall("listProcesses");
             if (procs.length > 0) {
-                await syscalls.write(["parent  pid  foreground  program"])
+                await writeln("pgid  ppid  pid  program")
                 for (let proc of procs) {
-                    const parentPid = proc.parentPid != null? proc.parentPid : " ";
-                    console.log(parentPid);
-                    const fg = proc.isInForeground ? "*" : " ";
-                    await syscalls.write([parentPid + "       " + proc.pid + "    " + fg + "           " + proc.programName])
+                    const ppid = proc.ppid != null? proc.ppid : " ";
+                    await writeln(proc.pgid + "     " + ppid + "     " + proc.pid + "    " + proc.programName)
                 }
             } else {
-                await syscalls.write(["<no running processes>"]);
+                await writeln("<no running processes>");
             }
         } else if (command == "kill") {
             if (words.length >= 2) {
                 const pid = words[1];
                 try {
-                    await syscalls.kill(pid);
+                    await syscall("sendSignal", {signal: "kill", pid});
                 } catch (e) {
-                    await syscalls.write(["<" + e.message + ">"]);
+                    await writeln("<" + e.message + ">");
                 }
             } else {
-                await syscalls.write(["<missing pid argument>"]);
+                await writeln("<missing pid argument>");
             }
         } else {
 
-            const fileNames = await syscalls.listFiles();
+            const fileNames = await syscall("listFiles");
 
             if (fileNames.indexOf(command) >= 0) {
                 
@@ -93,18 +99,18 @@ async function main(args) {
                 const shellPid = 0;
                 let pid;
                 try {
-                    pid = await syscalls.spawn({program: command, args, detached: runInBackground}, args);
+                    pid = await syscall("spawn", {program: command, args, detached: runInBackground}, args);
                 } catch (e) {
-                    await syscalls.write(["<" + e.message + ">"]);
+                    await writeln("<" + e.message + ">");
                 }
 
                 if (!runInBackground) {
                     console.log("WAITING FOR: ", pid);
-                    await syscalls.waitForExit(pid);
+                    await syscall("waitForExit", pid);
                     console.log("DONE WAITING FOR: ", pid);
                 }
             } else {
-                await syscalls.write(["Unknown command. Try typing: help"]);
+                await writeln("Unknown command. Try typing: help");
             }
     
         }

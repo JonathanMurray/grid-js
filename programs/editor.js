@@ -2,10 +2,9 @@
 
 class Editor {
 
-    constructor(canvas, syscalls, fileName, lines) {
+    constructor(canvas, fileName, lines) {
         this.text = new TextGrid(canvas);
         this.canvas = canvas;
-        this.syscalls = syscalls;
 
         if (lines != null) {
             this.text.lines = lines.map(x => x);
@@ -20,8 +19,8 @@ class Editor {
         if (name == "keydown") {
             const key = event.key;
             if (key == "s" && event.ctrlKey) {
-                this.syscalls.saveToFile({lines: this.text.lines, fileName: this.fileName}).then(() => {
-                    this.syscalls.write([`Saved to ${this.fileName}`]);
+                syscall("saveToFile", {lines: this.text.lines, fileName: this.fileName}).then(() => {
+                    writeln(`Saved to ${this.fileName}`);
                 })
             } else if (key == "Backspace") {
                 this.backspace();
@@ -136,7 +135,7 @@ async function main(args) {
 
     const size = [800, 600];
 
-    await syscalls.graphics({title: "Editing: " + fileName, size: [size[0] + 30, size[1] + 20]});
+    await syscall("graphics", {title: "Editing: " + fileName, size: [size[0] + 30, size[1] + 20]});
 
     const canvas = document.createElement("canvas");
     canvas.width = size[0];
@@ -144,13 +143,13 @@ async function main(args) {
     canvas.style.outline = "1px solid black";
     document.getElementsByTagName("body")[0].appendChild(canvas);
 
-    let lines = await syscalls.readFromFile(fileName);
+    let lines = await syscall("readFromFile", fileName);
     
-    const app = new Editor(canvas, syscalls, fileName, lines);
+    const app = new Editor(canvas, fileName, lines);
 
     window.addEventListener("keydown", function(event) {
         if (event.ctrlKey && event.key == "c") { 
-            syscalls.write(["Editor shutting down"]).finally(resolvePromise);
+            writeln("Editor shutting down").finally(resolvePromise);
         } else {
             app.handleEvent("keydown", event);
         }

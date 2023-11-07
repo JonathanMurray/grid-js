@@ -2,18 +2,18 @@
 
 async function main(args) {
 
-    await syscalls.write(["Let's launch some apps!"]);
+    await writeln("Let's launch some apps!");
 
     let pids = [];
 
-    pids.push(await syscalls.spawn({program: "sudoku"}));
-    pids.push(await syscalls.spawn({program: "snake"}));
+    pids.push(await syscall("spawn", {program: "sudoku"}));
+    pids.push(await syscall("spawn", {program: "snake"}));
     
-    await syscalls.write(["Launched: " + pids]);
+    await writeln("Launched: " + pids);
 
     for (let pid of pids) {
-        await syscalls.waitForExit(pid);
+        await syscall("waitForExit", pid);
     }
 
-    await syscalls.write(["All apps have stopped running."]);
+    await writeln("All apps have stopped running.");
 }

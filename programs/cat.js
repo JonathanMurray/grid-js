@@ -1,15 +1,18 @@
 "use strict";
 
+
+const STDOUT = 1;
+
 async function main(args) {
     if (args.length >= 1) {
         const fileName = args[0];
-        const lines = await syscalls.readFromFile(fileName);
+        const lines = await syscall("readFromFile", fileName);
         if (lines == null) {
-            await syscalls.write(["<no such file>"]);
+            await writeln("<no such file>");
         } else {
-            await syscalls.write(lines);
+            await syscall("write", {output:lines, streamId: STDOUT});
         }
     } else {
-        await syscalls.write(["<missing filename argument>"]);
+        await writeln("<missing filename argument>");
     }
 }

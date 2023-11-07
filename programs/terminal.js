@@ -1,29 +1,19 @@
 "use strict";
 
-class Terminal {
+class TerminalProg {
+
     static PROMPT = "> ";
 
-    constructor(canvas, system) {
+    constructor(canvas, shellWriterStreamId) {
         this.text = new TextGrid(canvas);
-        this.system = system;
         this.canvas = canvas;
 
         this.text.setTextStyle("blue");
 
         this.inputBuffer = "";
         this.inputIndex = 0;
-    }
 
-    control(arg) {
-        if ("printPrompt" in arg) {
-            this.printPrompt();
-        } else if ("setTextStyle" in arg) {
-            this.setTextStyle(arg.setTextStyle);
-        } else if ("setBackgroundStyle" in arg) {
-            this.setBackgroundStyle(arg.setBackgroundStyle);
-        } else {
-            console.error("Unhandled terminal control argument", arg);
-        }
+        this.shellWriterStreamId = shellWriterStreamId;
     }
 
     setTextStyle(style) {
@@ -32,10 +22,6 @@ class Terminal {
 
     setBackgroundStyle(style) {
         this.text.setBackgroundStyle(style);
-    }
-
-    setFocused(focused) {
-        this.text.setFocused(focused);
     }
 
     handleEvent(name, event) {
@@ -71,7 +57,7 @@ class Terminal {
     }
 
     backspace() {
-        if (this.text.cursorChar > Terminal.PROMPT.length) {
+        if (this.text.cursorChar > TerminalProg.PROMPT.length) {
             this.text.eraseInLine();
         }
 
@@ -94,8 +80,8 @@ class Terminal {
     }
 
     printPrompt() {
-        this.appendToLastLine(Terminal.PROMPT);
-        this.text.cursorChar = Terminal.PROMPT.length;
+        this.appendToLastLine(TerminalProg.PROMPT);
+        this.text.cursorChar = TerminalProg.PROMPT.length;
         this.text.draw();
     }
 
@@ -115,7 +101,8 @@ class Terminal {
 
     submitLine() {
         this.pushNewLine();
-        this.system.handleInput(this.inputBuffer);
+
+        syscall("write", {output: [this.inputBuffer], streamId: this.shellWriterStreamId});
         this.inputBuffer = "";
         this.inputIndex = 0;
     }
@@ -129,7 +116,7 @@ class Terminal {
     }
 
     moveLeft() {
-        if (this.text.cursorChar > Terminal.PROMPT.length) {
+        if (this.text.cursorChar > TerminalProg.PROMPT.length) {
             this.text.cursorChar --;
         }
 
@@ -148,4 +135,62 @@ class Terminal {
 
         this.inputIndex = this.inputBuffer.length - 1;
     }
+
 }
+
+
+async function main(args) {
+
+
+    const size = [400, 400];
+
+    await syscall("graphics", {title: "Terminal", size: [size[0] + 30, size[1] + 20]});
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size[0];
+    canvas.height = size[1];
+    canvas.style.outline = "1px solid black";
+    document.getElementsByTagName("body")[0].appendChild(canvas);
+
+    const {readerId: shellInputReaderId, writerId: shellInputWriterId} = await syscall("createPipe");
+    const {readerId: shellOutputReaderId, writerId: shellOutputWriterId} = await syscall("createPipe");
+    const {readerId: commandReaderId, writerId: commandWriterId} = await syscall("createPipe");
+
+    const terminal = new TerminalProg(canvas, shellInputWriterId);
+
+    const shellPid = await syscall("spawn", {program: "shell", streamIds: [shellInputReaderId, shellOutputWriterId, commandWriterId],
+        startNewProcessGroup: true});
+
+    window.addEventListener("keydown", function(event) {
+        if (event.ctrlKey && event.key == "c") { 
+            // This signal should be ignored by the shell itself, but (likely) kill any processes that it has spawned.
+            syscall("sendSignal", {signal: "interrupt", pgid: shellPid});
+        } 
+        
+        terminal.handleEvent("keydown", event);
+    });
+
+    while (true) {
+        const {line, streamId} = await syscall("readAny", {streamIds: [shellOutputReaderId, commandReaderId]});
+
+        if (streamId == shellOutputReaderId) {
+            terminal.printOutput([line]);
+        } else {
+            console.log("TERMINAL RECEIVED COMMAND FROM SHELL: ", line);
+            command = JSON.parse(line);
+            if ("setTextStyle" in command) {
+                terminal.setTextStyle(command.setTextStyle);
+            } else if ("setBackgroundStyle" in command) {
+                terminal.setBackgroundStyle(command.setBackgroundStyle);
+            } else if ("printPrompt" in command){
+                terminal.printPrompt();
+            } else {
+                console.error("Unhandled terminal command: ", command);
+            }
+        }
+
+    }
+
+
+}
+

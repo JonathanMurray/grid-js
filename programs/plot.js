@@ -2,9 +2,8 @@
 
 class Plot {
 
-    constructor(canvas, syscalls, func) {
+    constructor(canvas, func) {
         this.canvas = canvas;
-        this.syscalls = syscalls;
         
         const ctx = canvas.getContext("2d");
 
@@ -22,19 +21,19 @@ class Plot {
 
         if (func == undefined) {
             f = x => Math.sin(x) - Math.tan(x);
-            syscalls.write(["Plotting sin - tan"]);
+            writeln("Plotting sin - tan");
         } else if (func == "sin") {
             f = x => Math.sin(x);
-            syscalls.write(["Plotting sin"]);
+            writeln("Plotting sin");
         } else if (func == "cos") {
             f = x => Math.cos(x);
-            syscalls.write(["Plotting cos"]);
+            writeln("Plotting cos");
         } else if (func == "tan") {
             f = x => Math.tan(x);
-            syscalls.write(["Plotting tan"]);
+            writeln("Plotting tan");
         } else {
             f = x => x;
-            syscalls.write(["Unrecognized function. Plotting linear"]);
+            writeln("Unrecognized function. Plotting linear");
         }
 
         const xRange = 10;
@@ -78,7 +77,7 @@ async function main(args) {
 
     const size = [300, 300];
 
-    await syscalls.graphics({title, size: [size[0] + 30, size[1] + 20]});
+    await syscall("graphics", {title, size: [size[0] + 30, size[1] + 20]});
 
     const canvas = document.createElement("canvas");
     canvas.width = size[0];
@@ -86,11 +85,11 @@ async function main(args) {
     canvas.style.outline = "1px solid black";
     document.getElementsByTagName("body")[0].appendChild(canvas);
     
-    const app = new Plot(canvas, syscalls, func);
+    const app = new Plot(canvas, func);
 
     window.addEventListener("keydown", function(event) {
         if (event.ctrlKey && event.key == "c") { 
-            syscalls.write(["Plotter shutting down"]).finally(resolvePromise);
+            writeln("Plotter shutting down").finally(resolvePromise);
         }
     });
 

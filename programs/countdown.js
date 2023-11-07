@@ -10,7 +10,7 @@ async function main(args) {
     }
 
     while (counter > 0) {
-        syscalls.write(["" + counter]);
+        await writeln("" + counter);
         counter --;
         await new Promise(r => setTimeout(r, 250));
     }
