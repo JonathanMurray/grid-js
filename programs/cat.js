@@ -10,7 +10,9 @@ async function main(args) {
         if (lines == null) {
             await writeln("<no such file>");
         } else {
-            await syscall("write", {output:lines, streamId: STDOUT});
+            for (let line of lines) {
+                await writeln(line);
+            }
         }
     } else {
         await writeln("<missing filename argument>");

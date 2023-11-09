@@ -19,7 +19,7 @@
 
     console.log("Initializing program iframe ...");
 
-    let nextMessageId = 1;
+    let nextSyscallSequenceNum = 1;
     let messageCallbacks = {};
 
     function syscall(syscall, arg) {
@@ -29,14 +29,14 @@
             arg = {};
         }
 
-        let messageId = nextMessageId ++;
-        console.assert(!(messageId in messageCallbacks), `message id ${messageId} in ${JSON.stringify(messageCallbacks)}`);
+        let sequenceNum = nextSyscallSequenceNum ++;
+        console.assert(!(sequenceNum in messageCallbacks), `message id ${sequenceNum} in ${JSON.stringify(messageCallbacks)}`);
         let callbacks = {};
-        messageCallbacks[messageId] = callbacks;
+        messageCallbacks[sequenceNum] = callbacks;
 
         console.debug("posting syscall...");
         console.assert(pid != null, "pid must have been assigned");
-        parent.postMessage({syscall: {syscall, arg, pid, messageId}}, "*");
+        parent.postMessage({syscall: {syscall, arg, pid, sequenceNum}}, "*");
         console.debug("posted syscall...");
 
         const asyncSyscallResult = new Promise((resolve, reject) => {
@@ -48,8 +48,11 @@
         return asyncSyscallResult;
     }
 
-    function writeln(line) {
-        return syscall("write", {output: [line], streamId: 1});
+    function writeln(line, streamId) {
+        if (streamId == undefined) {
+            streamId = 1;
+        }
+        return syscall("write", {line, streamId});
     }
 
     function readln() {
@@ -82,7 +85,6 @@
     }
 
     window.addEventListener("mousedown", (event) => {
-        console.log("iframe mouse down: ", pid);
         parent.postMessage({iframeReceivedFocus: {pid: pid}}, "*");
     });
 
@@ -97,18 +99,18 @@
             pid = message.data.startProcess.pid;
             runProgram(message.data.startProcess.code, message.data.startProcess.args);
         } else if ("syscallResult" in message.data) {
-            const messageId = message.data.syscallResult.messageId;
+            const sequenceNum = message.data.syscallResult.sequenceNum;
             if ("success" in message.data.syscallResult) {
                 let result = message.data.syscallResult.success;
                 console.debug("Received syscall result in iframe: ", result);
-                messageCallbacks[messageId].resolve(result);
-                delete messageCallbacks[messageId]; // avoid leaking memory
+                messageCallbacks[sequenceNum].resolve(result);
+                delete messageCallbacks[sequenceNum]; // avoid leaking memory
             } else {
                 console.assert("error" in message.data.syscallResult);
                 let error = message.data.syscallResult.error;
                 console.log("Received syscall error in iframe: ", error);
-                messageCallbacks[messageId].reject(error);
-                delete messageCallbacks[messageId]; // avoid leaking memory
+                messageCallbacks[sequenceNum].reject(error);
+                delete messageCallbacks[sequenceNum]; // avoid leaking memory
             }
         } else {
             console.error("Unhandled message in program iframe", message.data);

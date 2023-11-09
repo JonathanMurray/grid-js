@@ -8,6 +8,8 @@ class System {
 
         this.nextPid = 1;
         this.processes = {};
+
+        this.pseudoTerminals = {};
         
         this.maxZIndex = 1;
 
@@ -44,7 +46,7 @@ class System {
         }
         system.files = files;
 
-        const pid = system.spawnProcess({programName: "terminal", args: ["terminal"], streams: {}, ppid: null, pgid: null});
+        const pid = system.spawnProcess({programName: "terminal", args: [], streams: {}, ppid: null, pgid: null, sid: null});
 
         return system;
     }
@@ -57,9 +59,20 @@ class System {
         return code.split("\n");
     }
 
-    async call(syscall, arg, pid) {
-        console.assert(syscall in this.syscalls, "Syscall does not exist: " + syscall);
-        return await this.syscalls[syscall](arg, pid);
+    async call(syscall, arg, pid, sequenceNum) {
+        if (!(syscall in this.syscalls)) {
+            throw new SyscallError("no such syscall");
+        }
+        
+        const proc = this.processes[pid];
+        
+        const promise = this.syscalls[syscall](arg, pid);
+
+        proc.ongoingSyscalls[sequenceNum] = promise;
+        
+        const result = await promise;
+        delete proc.ongoingSyscalls[sequenceNum];
+        return result;
     }
 
 
@@ -105,27 +118,27 @@ class System {
     }
 
     handleSyscallMessage(event) {
-        const {syscall, arg, pid, messageId} = event.data.syscall;
+        const {syscall, arg, pid, sequenceNum} = event.data.syscall;
 
         console.log(`[${pid}] ${syscall}(${JSON.stringify(arg)}) ...`);
 
-        this.call(syscall, arg, pid).then((result) => {
+        this.call(syscall, arg, pid, sequenceNum).then((result) => {
             console.log(`[${pid}] ${syscall}(${JSON.stringify(arg)}) --> ${JSON.stringify(result)}`);
             const programWindow = document.getElementById("program-window-" + pid);
             if (programWindow) {
                 const iframe = programWindow.getElementsByTagName("iframe")[0];
-                iframe.contentWindow.postMessage({syscallResult: {success: result, messageId}}, "*");
+                iframe.contentWindow.postMessage({syscallResult: {success: result, sequenceNum}}, "*");
                 console.debug("Sent syscall result to program iframe");
             } else {
                 console.debug("Cannot send syscall to process. It has no window. It must have shut down itself already.");
             }
         }).catch((error) => {
-            if (error instanceof SyscallError) {
+            if (error instanceof SyscallError || error.name == "ProcessInterrupted") {
                 console.warn(`[${pid}] ${syscall}(${JSON.stringify(arg)}) --> `, error);
                 const programWindow = document.getElementById("program-window-" + pid);
                 if (programWindow) {
                     const iframe = programWindow.getElementsByTagName("iframe")[0];
-                    iframe.contentWindow.postMessage({syscallResult: {error, messageId}}, "*");
+                    iframe.contentWindow.postMessage({syscallResult: {error, sequenceNum}}, "*");
                     console.debug("Sent syscall error to program iframe");
                 } else {
                     console.debug("Cannot send syscall error to process. It has no window. It must have shut down itself already.");
@@ -136,13 +149,11 @@ class System {
         });
     }
 
-
-
     printOutput(output) {
         this.terminal.printOutput(output);
     }
 
-    spawnProcess({programName, args, streams, ppid, pgid}) {
+    spawnProcess({programName, args, streams, ppid, pgid, sid}) {
         if (programName in this.files) {
             const lines = this.files[programName];
             if (lines[0] == "<script>") {
@@ -151,11 +162,14 @@ class System {
                 if (pgid == null) {
                     pgid = pid;  // The new process becomes leader of a new process group
                 }
+                if (sid == null) {
+                    sid = pid;  // The new process becomes leader of a new session
+                }
 
-                const proc = new Process(code, args, this, pid, streams, ppid, pgid);
+                const proc = new Process(code, programName, args, this, pid, streams, ppid, pgid, sid);
                 this.processes[pid] = proc;
 
-                console.log(`[${pid}] Process starting. parent=${ppid}, group=${pgid}`)
+                console.log(`[${pid}] NEW PROCESS. parent=${ppid}, group=${pgid}, session=${sid}`)
 
                 proc.start(); // We make sure that the pid is in the process table before the program starts running
 
@@ -168,17 +182,28 @@ class System {
 
     onProcessExit(pid) {
         console.assert(pid != undefined);
-        console.log("Removing process", pid);
+        console.log(`[${pid}] PROCESS EXIT`)
         let proc = this.processes[pid];
         delete this.processes[pid];
         proc.onExit();
 
+        if (proc.pid == proc.sid && proc.sid in this.pseudoTerminals) {
+            console.log(`[${proc.pid}] Session leader controlling PTTY dies. Sending HUP to foreground process group.`)
+            const pty = this.pseudoTerminals[proc.sid];
+            this.sendSignalToProcessGroup("hangup", pty.foreground_pgid);
+            delete this.pseudoTerminals[proc.sid];
+        }
+
+        console.log("Pseudo terminal sids: ", Object.keys(this.pseudoTerminals));
+
+        this.focusFrontMostWindow();
+    }
+
+    focusFrontMostWindow() {
         const programWindows = Array.from(document.getElementsByClassName("program-window"));
-        
         const frontMostWindow = programWindows.reduce(function(prev, current) {
             return (prev && prev.style.zIndex > current.style.zIndex) ? prev : current
         })
-        
         this.focusProgramWindow(frontMostWindow);
     }
 
@@ -193,21 +218,30 @@ class System {
         return null; 
     }
 
-    createPipe(pid) {
-        const proc = this.processes[pid];
-        return proc.createPipe();
+    
+    sendSignalToProcessGroup(signal, pgid) {
+        let foundSome = false;
+        // Note: likely quite bad performance below
+        for (let pid of Object.keys(this.processes)) {
+            const proc = this.processes[pid];
+            if (proc.pgid == pgid) {
+                this.sendSignalToProcess(signal, proc);
+                foundSome = true;
+            }
+        }
+        if (!foundSome) {
+            throw new SyscallError("no such process group");
+        }
     }
 
     sendSignalToProcess(signal, proc) {
-        console.debug(`[${proc.pid}] Received signal: ${signal}`);
+        console.log(`[${proc.pid}] Received signal: ${signal}`);
         if (signal == "kill") {
             this.onProcessExit(proc.pid);
         } else if (signal == "interrupt") {
-            if (!proc.ignoresInterruptSignal) {
-                this.onProcessExit(proc.pid);
-            } else {
-                console.debug(`[${proc.pid}] Ignored interrupt`);
-            }
+            proc.receiveInterruptSignal();
+        } else if (signal == "hangup") {
+            this.onProcessExit(proc.pid);
         } else {
             throw new SyscallError("no such signal");
         }
@@ -215,79 +249,350 @@ class System {
 }
 
 
+class Syscalls {
+    constructor(system) {
+        this.system = system;
+    }
+
+    joinNewSessionAndProcessGroup(arg, pid) {
+        const proc = this.system.processes[pid];
+        // Note that this has no effect if the process is already session leader and process group leader.
+        proc.sid = proc.pid;
+        proc.pgid = proc.pid;
+    }
+
+    createPseudoTerminal(arg, pid) {
+        const proc = this.system.processes[pid];
+        if (proc.pid != proc.sid) {
+            throw new SyscallError("only session leader can create a pseudoterminal")
+        }
+        if (proc.pid != proc.pgid) {
+            throw new SyscallError("only process group leader can create a pseudoterminal")
+        }
+        const pty = new PseudoTerminal(proc);
+        this.system.pseudoTerminals[proc.sid] = pty;
+
+        const masterReaderId = proc.addStream(new PipeReader(pty.slaveToMaster));
+        const masterWriterId = proc.addStream(new PipeWriter(pty.masterToSlave));
+        const slaveReaderId = proc.addStream(new PipeReader(pty.masterToSlave));
+        const slaveWriterId = proc.addStream(new PipeWriter(pty.slaveToMaster));
+
+        return {masterReaderId, masterWriterId, slaveReaderId, slaveWriterId};
+    }
+
+    setForegroundProcessGroupOfPseudoTerminal({pgid, toSelf}, pid) {
+        if ((pgid == undefined && toSelf == undefined) || (pgid != undefined && toSelf != undefined)) {
+            throw new SyscallError(`exactly one of pgid and toSelf should be set. pgid=${pgid}, toSelf=${toSelf}`);
+        }
+        const proc = this.system.processes[pid];
+        const pty = this.system.pseudoTerminals[proc.sid];
+        if (pty == undefined) {
+            throw new SyscallError("no pseudoterminal is controlled by this process' session")
+        }
+        if (toSelf) {
+            pgid = proc.pgid;
+        }
+        pty.setForegroundPgid(pgid);
+    }
+
+    getForegroundProcessGroupOfPseudoTerminal(arg, pid) {
+        const proc = this.system.processes[pid];
+        const pty = this.system.pseudoTerminals[proc.sid];
+        if (pty == undefined) {
+            throw new SyscallError("no pseudoterminal is controlled by this process' session")
+        }
+        return pty.foreground_pgid;
+    }
+
+    createPipe(arg, pid) {
+        const proc = this.system.processes[pid];
+
+        const pipe = new Pipe();
+
+        const readerId = proc.addStream(new PipeReader(pipe));
+        const writerId = proc.addStream(new PipeWriter(pipe));
+
+        return {readerId, writerId};
+    }
+
+    listProcesses(arg, pid) {
+        let procs = [];
+        for (let pid of Object.keys(this.system.processes)) {
+            const proc = this.system.processes[pid];
+            procs.push({pid, ppid: proc.ppid, programName: proc.programName, pgid: proc.pgid});
+        }
+        return procs;
+    }
+
+    exit(arg, pid) {
+        console.assert(pid != undefined);
+        return this.system.onProcessExit(pid);
+    }
+
+    sendSignal({signal, pid, pgid}, senderPid) {
+
+        if ((pid == undefined && pgid == undefined) || (pid != undefined && pgid != undefined)) {
+            throw new SyscallError(`exactly one of pid and pgid should be set. pid=${pid}, pgid=${pgid}`);
+        }
+
+        if (pid != undefined) {
+            if (pid == senderPid) {
+                // TODO: shouldn't be able to kill ancestors either?
+                throw new SyscallError("process cannot kill itself");
+            }
+            const proc = this.system.processes[pid];
+            if (proc != undefined) {
+                this.system.sendSignalToProcess(signal, proc);
+            } else {
+                throw new SyscallError("no such process");
+            }
+        } else if (pgid != undefined) {
+            this.system.sendSignalToProcessGroup(signal, pgid);
+        }
+    }
+
+    ignoreInterruptSignal(arg, pid) {
+        const proc = this.system.processes[pid];
+        proc.interruptSignalBehaviour = InterruptSignalBehaviour.IGNORE;
+    }
+
+    handleInterruptSignal(arg, pid) {
+        const proc = this.system.processes[pid];
+        proc.interruptSignalBehaviour = InterruptSignalBehaviour.HANDLE;
+    }
+
+    write({line, streamId}, pid) {
+        if (line == undefined) {
+            throw new SyscallError("missing line argument");
+        }
+        const proc = this.system.processes[pid];
+        return proc.write(streamId, line);
+    }
+
+    read({streamId}, pid) {
+        if (streamId == undefined) {
+            throw new SyscallError("missing streamId argument");
+        }
+        const proc = this.system.processes[pid];
+        return proc.read(streamId);
+    }
+
+    readAny({streamIds}, pid) {
+        const proc = this.system.processes[pid];
+        return proc.readAny(streamIds);
+    }
+
+    listFiles(arg, pid) {
+        return Object.keys(this.system.files);
+    }
+
+    saveToFile({lines, fileName}, pid) {
+        console.assert(fileName, "Must provide filename when saving to file");
+        return this.system.saveLinesToFile(lines, fileName);
+    }
+
+    readFromFile(fileName, pid) {
+        return this.system.readLinesFromFile(fileName);
+    }
+
+    async spawn({program, args, nullStreams, streamIds, startNewProcessGroup}, ppid) {
+
+        const parentProc = this.system.processes[ppid];
+
+        let streams;
+        if (streamIds != undefined) {
+            streams = {};
+            for (let i = 0; i < streamIds.length; i++) {
+                const parentStreamId = parseInt(streamIds[i]);
+                const stream = parentProc.streams[parentStreamId];
+                console.assert(stream != undefined);
+                streams[i] = stream;
+            }
+        } else if (nullStreams) {
+            const nullStream = new NullStream();
+            streams = {0: nullStream, 1: nullStream}
+        } else {
+            // Inherit the parent's streams
+            streams = Object.assign({}, parentProc.streams);
+        }
+
+        let pgid;
+        if (startNewProcessGroup) {
+            pgid = null;
+        } else {
+            // Join the parent's process group
+            pgid = parentProc.pgid;
+        }
+
+        // Join the parent's session
+        const sid = parentProc.sid;
+        
+        const childPid = await this.system.spawnProcess({programName:program, args, streams, ppid, pgid, sid});
+
+        return childPid;
+    }
+
+    waitForExit(pidToWaitFor, pid) {
+        const proc = this.system.processes[pidToWaitFor];
+        if (proc) {
+            console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
+            return proc.waitForExit();
+        }
+        console.debug("Process doesn't exist / has already exited");
+    }
+
+    graphics({title, size}, pid) {
+        const programWindow = document.getElementById("program-window-" + pid);
+        programWindow.style.display = "block";
+
+        const iframe = programWindow.getElementsByTagName("iframe")[0];
+        if (size != undefined) {
+            iframe.width = size[0];
+            iframe.height = size[1];
+        }
+        title = `[${pid}] ${title || "Untitled"}`
+        programWindow.getElementsByClassName("program-window-header")[0].innerHTML = title;
+
+        this.system.focusProgramWindow(programWindow);
+
+        const availableScreenSpace = document.getElementsByTagName("body")[0].getBoundingClientRect()
+        programWindow.style.left = availableScreenSpace.width / 2 - programWindow.getBoundingClientRect().width / 2;
+        programWindow.style.top = availableScreenSpace.height / 2 - programWindow.getBoundingClientRect().height / 2;
+
+        console.debug("showed iframe", iframe);
+    }
+}
+
+const InterruptSignalBehaviour = {
+    EXIT: "EXIT",
+    IGNORE: "IGNORE",
+    HANDLE: "HANDLE"
+};
+
 class Process {
 
-    constructor(code, args, system, pid, streams, ppid, pgid) {
-        console.assert(args != undefined);
+    constructor(code, programName, args, system, pid, streams, ppid, pgid, sid) {
         console.assert(streams != undefined);
+        if (args == undefined) {
+            args = [];
+        }
         this.code = code;
         this.pid = pid; // Process ID
         this.ppid = ppid; // Parent process ID
         this.pgid = pgid // Process group ID
+        this.sid = sid; // Session ID
+        this.programName = programName;
         this.args = args;
         this.exitWaiters = [];
         this.system = system;
-
-        this.streams = streams;
-        this.nextStreamId = 2;
+        this.streams = streams; // For reading and writing. By convention 0=stdin, 1=stdout
+        
+        this.nextStreamId = 0;
+        for (let streamId of Object.keys(streams)) {
+            streamId = parseInt(streamId);
+            this.nextStreamId = Math.max(this.nextStreamId, streamId + 1);
+        }
+        console.assert(this.nextStreamId != NaN);
 
         this.hasExited = false;
-        this.ignoresInterruptSignal = false;
+        this.interruptSignalBehaviour = InterruptSignalBehaviour.EXIT;
+
+        this.ongoingSyscalls = {};
+
+        this.nextPromiseId = 1;
+        this.promiseCallbacks = {};
     }
 
-    write(streamId, output) {
-        const outputStream = this.streams[streamId];
-        console.assert(outputStream != undefined);
-        for (let line of output) {
-            outputStream.pushInputLine(line);
+    receiveInterruptSignal() {
+        if (this.interruptSignalBehaviour == InterruptSignalBehaviour.EXIT) {
+            this.system.onProcessExit(this.pid);
+        } else if (this.interruptSignalBehaviour == InterruptSignalBehaviour.HANDLE) {
+            console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this.promiseCallbacks)}`)
+            // Any ongoing syscalls will throw an error that can be
+            // caught in the application code.
+            for (let id of Object.keys(this.promiseCallbacks)) {
+                this.promiseCallbacks[id].reject({name: "ProcessInterrupted", message: "interrupted"});
+                delete this.promiseCallbacks[id];
+            }
+        } else if (this.interruptSignalBehaviour == InterruptSignalBehaviour.IGNORE) {
+            //console.debug(`[${this.pid}] ignoring interrupt signal`)
         }
     }
 
-    read(streamId) {
-        const inputStream = this.streams[streamId];
+    promise() {
+        let resolver;
+        let rejector;
+        const promise = new Promise((resolve, reject) => {
+            resolver = resolve;
+            rejector = reject;
+        });
+        const promiseId = this.nextPromiseId ++;
+        this.promiseCallbacks[promiseId] = {resolve: resolver, reject: rejector};
+        return {promise, promiseId};
+    }
 
-        let resolvePromise;
-        let promise = new Promise((r) => resolvePromise = r);
+    resolvePromise(id, result) {
+        this.promiseCallbacks[id].resolve(result);
+        delete this.promiseCallbacks[id];
+    }
+    
+    write(streamId, line) {
+        const outputStream = this.streams[streamId];
+        console.assert(outputStream != undefined);
+        const {promise, promiseId} = this.promise();
         const self = this;
-        inputStream.waitForLine((line) => {
+        outputStream.requestWrite(() => {
             if (self.hasExited) {
-                return false; // signal that some other process should get the line
+                return null; // signal that we are no longer attempting to write
             }
-
-            resolvePromise(line);
-            return true; // signal that we consumed the line
+            this.resolvePromise(promiseId);
+            return line; // give the line to the stream
         });
 
         return promise;
     }
-    
+
+    read(streamId) {
+        const inputStream = this.streams[streamId];
+        console.assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
+        const {promise, promiseId} = this.promise();
+        const reader = (line) => {
+            this.resolvePromise(promiseId, line);
+            return true; // signal that we read the line
+        }
+        inputStream.requestRead({reader, proc: this});
+        return promise;
+    }
+
     readAny(streamIds) {
-        let resolvePromise;
+        const {promise, promiseId} = this.promise();
         let hasResolvedPromise = false;
-        let promise = new Promise((r) => resolvePromise = (result) => {r(result); hasResolvedPromise = true;});
+
         const self = this;
         for (let streamId of streamIds) {
             const inputStream = this.streams[streamId];
-            inputStream.waitForLine((line) => {
-                if (self.hasExited || hasResolvedPromise) {
-                    return false; // signal that some other process should get the line
+            console.assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
+
+            const reader = (line) => {
+                if (hasResolvedPromise) {
+                    return false; // signal that we ended up not reading the line
                 }
     
-                resolvePromise({line, streamId});
-                return true; // signal that we consumed the line
-            });
+                this.resolvePromise(promiseId, {line, streamId});
+                hasResolvedPromise = true;
+                return true; // signal that we read the line
+            };
+
+            inputStream.requestRead({reader, proc: this});
         }
 
         return promise;
     }
 
-    createPipe() {
-        const pipe = new Pipe();
-        const readerId = this.nextStreamId ++;
-        this.streams[readerId] = new PipeReader(pipe);
-        const writerId = this.nextStreamId ++;
-        this.streams[writerId] = new PipeWriter(pipe);
-        return {readerId, writerId};
+    addStream(stream) {
+        const streamId = this.nextStreamId ++;
+        this.streams[streamId] = stream;
+        return streamId;
     }
 
     start() {
@@ -296,7 +601,7 @@ class Process {
         iframe.sandbox = "allow-scripts";
 
         iframe.onload = () => {
-            iframe.contentWindow.postMessage({startProcess: {code: this.code, args: this.args.slice(1), pid: this.pid}}, "*");
+            iframe.contentWindow.postMessage({startProcess: {code: this.code, args: this.args, pid: this.pid}}, "*");
         }
 
         iframe.src = "sandboxed-program.html";
@@ -323,26 +628,21 @@ class Process {
         });
 
         iframe.addEventListener("mousedown", (event) => {
-            console.log("iframe mouse down: ", programWindow.id);
             programWindow.classList.add("focused");
         });
 
         iframe.addEventListener("focus", (event) => {
-            console.log("iframe Focused: ", programWindow.id);
             programWindow.classList.add("focused");
         });
         header.addEventListener("focus", (event) => {
-            console.log("header Focused: ", programWindow.id);
             programWindow.classList.add("focused");
         });
 
         iframe.addEventListener("blur", (event) => {
-            console.log("iframe Blurred: ", programWindow.id, event);
             programWindow.classList.remove("focused");
         });
 
         document.getElementsByTagName("body")[0].appendChild(programWindow);
-
     }
 
     onExit() {
@@ -355,6 +655,7 @@ class Process {
 
     waitForExit() {
         let waiter;
+        // TODO handle properly so that it can be interrupted
         const exitPromise = new Promise((resolve) => waiter = resolve);
         this.exitWaiters.push(waiter);
         return exitPromise;
@@ -362,218 +663,84 @@ class Process {
 
 }
 
-class Syscalls {
-    constructor(system) {
-        this.system = system;
+class PseudoTerminal {
+    // Pseudoterminal a.k.a. PTY is used for IO between the terminal and the shell.
+    // https://man7.org/linux/man-pages/man7/pty.7.html
+    // https://unix.stackexchange.com/questions/117981/what-are-the-responsibilities-of-each-pseudo-terminal-pty-component-software
+    constructor(foreground_pgid) {
+        this.foreground_pgid = foreground_pgid;
+        this.masterToSlave = new Pipe();
+        this.slaveToMaster = new Pipe();
     }
 
-    async createPipe(arg, pid) {
-        return this.system.createPipe(pid);
+    setForegroundPgid(pgid) {
+        this.foreground_pgid = pgid;
+        this.masterToSlave.setRestrictReadsToProcessGroup(pgid);
+    }
+}
+
+class Pipe {
+    constructor() {
+        this.buffer = [];
+        this.waitingReaders = [];
+        this.restrictReadsToProcessGroup = null;
     }
 
-    async listProcesses(arg, pid) {
-        let procs = [];
-        for (let pid of Object.keys(this.system.processes)) {
-            const proc = this.system.processes[pid];
-            procs.push({pid, ppid: proc.ppid, programName: proc.args[0], pgid: proc.pgid});
-        }
-        return procs;
+    setRestrictReadsToProcessGroup(pgid) {
+        this.restrictReadsToProcessGroup = pgid;
+        this.handleWaitingReaders();
+    }
+    
+    isProcAllowedToRead(proc) {
+        return this.restrictReadsToProcessGroup == null || this.restrictReadsToProcessGroup == proc.pgid;
     }
 
-    async controlTerminal(arg, pid) {
-        // TODO this syscall should only be allowed for a process that is the current owner of the terminal
-        console.log("TODO: controlTerminal");
-        //return this.system.terminal.control(arg);
+    requestRead({reader, proc}) {
+        this.waitingReaders.push({reader, proc});
+        this.handleWaitingReaders();
     }
 
-    async exit(arg, pid) {
-        console.assert(pid != undefined);
-        return this.system.onProcessExit(pid);
-    }
-
-    async sendSignal({signal, pid, pgid}, senderPid) {
-
-        if ((pid == undefined && pgid == undefined) || (pid != undefined && pgid != undefined)) {
-            throw new SyscallError(`must specify exactly one of pid and pgid. pid=${pid}, pgid=${pgid}`);
-        }
-
-        if (pid != undefined) {
-            if (pid == senderPid) {
-                // TODO: shouldn't be able to kill ancestors either?
-                throw new SyscallError("process cannot kill itself");
-            }
-            const proc = this.system.processes[pid];
-            if (proc != undefined) {
-                this.system.sendSignalToProcess(signal, proc);
-            } else {
-                throw new SyscallError("no such process");
-            }
-        } else if (pgid != undefined) {
-            let foundSome = false;
-            // Note: likely quite bad performance below
-            for (let pid of Object.keys(this.system.processes)) {
-                const proc = this.system.processes[pid];
-                if (proc.pgid == pgid) {
-                    this.system.sendSignalToProcess(signal, proc);
-                    foundSome = true;
+    handleWaitingReaders() {
+        if (this.buffer.length > 0) {
+            if (this.waitingReaders.length > 0) {
+                for (let i = 0; i < this.waitingReaders.length;) {
+                    const {reader, proc} = this.waitingReaders[i];
+                    if (proc.hasExited) {
+                        // The process will never be able to read
+                        this.waitingReaders.splice(i, 1);
+                    } else if (this.isProcAllowedToRead(proc)) {
+                        this.waitingReaders.splice(i, 1);
+                        const line = this.buffer[0];
+                        // Check that a read actually occurs. This is necessary because of readAny()
+                        if (reader(line)) {
+                            this.buffer.shift();
+                            return true; 
+                        }
+                    } else {
+                        // The reader was left in the list, and we move onto the next one
+                        i++;
+                    }
                 }
             }
-            if (!foundSome) {
-                throw new SyscallError("no such process group");
-            }
         }
+        return false;
     }
 
-    async ignoreInterruptSignal(arg, pid) {
-        const proc = this.system.processes[pid];
-        if (proc != undefined) {
-            proc.ignoresInterruptSignal = true;
-        } else {
-            throw new SyscallError("no such process");
-        }
-    }
-
-    async write({output, streamId}, pid) {
-        if (output == undefined) {
-            throw new SyscallError("missing output argument");
-        }
-        const proc = this.system.processes[pid];
-        return proc.write(streamId, output);
-    }
-
-    async read({streamId}, pid) {
-        if (streamId == undefined) {
-            throw new SyscallError("missing streamId argument");
-        }
-        const proc = this.system.processes[pid];
-        return proc.read(streamId);
-    }
-
-    async readAny({streamIds}, pid) {
-        const proc = this.system.processes[pid];
-        return proc.readAny(streamIds);
-    }
-
-    async listFiles(arg, pid) {
-        return Object.keys(this.system.files);
-    }
-
-    async saveToFile({lines, fileName}, pid) {
-        console.assert(fileName, "Must provide filename when saving to file");
-        return this.system.saveLinesToFile(lines, fileName);
-    }
-
-    async readFromFile(fileName, pid) {
-        return this.system.readLinesFromFile(fileName);
-    }
-
-    async spawn({program, args, detached, streamIds, startNewProcessGroup}, ppid) {
-
-        const parentProc = this.system.processes[ppid];
-
-        let streams;
-        if (streamIds != undefined) {
-            streams = {};
-            for (let i = 0; i < streamIds.length; i++) {
-                const parentStreamId = streamIds[i];
-                const stream = parentProc.streams[parentStreamId];
-                console.assert(stream != undefined);
-                streams[i] = stream;
-            }
-        } else {
-            streams = Object.assign({}, parentProc.streams);
-        }
-
-        let pgid;
-        if (startNewProcessGroup) {
-            pgid = null;
-        } else {
-            // Join the parent's process group
-            pgid = parentProc.pgid;
-        }
-        
-        const childPid = await this.system.spawnProcess({programName:program, args:[program].concat(args), 
-                streams, ppid, pgid});
-
-        return childPid;
-    }
-
-    async waitForExit(pidToWaitFor, pid) {
-        const proc = this.system.processes[pidToWaitFor];
-        if (proc) {
-            console.log(pid + " Waiting for process " + pidToWaitFor + " to exit...");
-            return proc.waitForExit();
-        }
-        console.log("Process doesn't exist / has already exited");
-    }
-
-    async graphics({title, size}, pid) {
-        const programWindow = document.getElementById("program-window-" + pid);
-        programWindow.style.display = "block";
-
-        const iframe = programWindow.getElementsByTagName("iframe")[0];
-        if (size != undefined) {
-            iframe.width = size[0];
-            iframe.height = size[1];
-        }
-        title = `[${pid}] ${title || "Untitled"}`
-        programWindow.getElementsByClassName("program-window-header")[0].innerHTML = title;
-
-        this.system.focusProgramWindow(programWindow);
-
-        const availableScreenSpace = document.getElementsByTagName("body")[0].getBoundingClientRect()
-        programWindow.style.left = availableScreenSpace.width / 2 - programWindow.getBoundingClientRect().width / 2;
-        programWindow.style.top = availableScreenSpace.height / 2 - programWindow.getBoundingClientRect().height / 2;
-
-        console.debug("showed iframe", iframe);
+    requestWrite(writer) {
+        const line = writer();
+        this.buffer.push(line);
+        this.handleWaitingReaders();
     }
 }
 
 
-class Pipe {
-    constructor() {
-        this.bufferedInput = [];
-        this.inputWaiters = [];
-    }
-    
-    async waitForLine(consumer) {
-        const line = this.bufferedInput.shift();
-        if (line != undefined) {
-            console.log("Pipe.waitForLine() Got input immediately:", line);
-            const didConsume = consumer(line);
-            if (!didConsume) {
-                // This consumer ended up not consuming the input. Probably it was a readAny syscall that got a line from some
-                // other stream => we must put back the line in the stream.
-                this.bufferedInput.unshift(line);
-            }
-            return;
-        }
-
-        console.log("Pipe.waitForLine() Registering waiter for input");
-
-        // No input exists yet. We must wait for it.
-        this.inputWaiters.push(consumer);
+class NullStream {
+    requestRead() {
+        // The reader will never get input
     }
 
-    pushInputLine(line) {
-        console.log(`Pipe.pushInputLine(${line}) ...`)
-        let consumer = this.inputWaiters.shift();
-        while (consumer != undefined) {
-            const didConsume = consumer(line);
-            if (didConsume) {
-                console.log("A waiter consumed the input:", line);
-                return;
-            } else {
-                // This waiter ended up not consuming the input. Probably its corresponding process has exited since it made the
-                // read syscall. Then another process needs to be given the line instead.
-                consumer = this.inputWaiters.shift();
-            }
-        }
-
-        console.log("No waiter. Buffering input:", line);
-
-        // Noone is currently waiting for input. We must buffer it.
-        this.bufferedInput.push(line);
+    requestWrite() {
+        // The output is discarded
     }
 }
 
@@ -582,10 +749,9 @@ class PipeReader {
         this.pipe = pipe;
     }
 
-    waitForLine(consumer) {
-        return this.pipe.waitForLine(consumer);
+    requestRead(arg) {
+        return this.pipe.requestRead(arg);
     }
-
 }
 
 class PipeWriter {
@@ -593,8 +759,8 @@ class PipeWriter {
         this.pipe = pipe;
     }
     
-    pushInputLine(line) {
-        return this.pipe.pushInputLine(line);
+    requestWrite(writer) {
+        return this.pipe.requestWrite(writer);
     }
 }
 

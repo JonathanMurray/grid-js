@@ -1,6 +1,6 @@
 "use strict";
 
-class TerminalProg {
+class Terminal {
 
     static PROMPT = "> ";
 
@@ -57,12 +57,13 @@ class TerminalProg {
     }
 
     backspace() {
-        if (this.text.cursorChar > TerminalProg.PROMPT.length) {
+        if (this.text.cursorChar > Terminal.PROMPT.length) {
             this.text.eraseInLine();
         }
 
         if (this.inputIndex > 0) {
             this.inputBuffer = this.inputBuffer.slice(0, this.inputIndex - 1) + this.inputBuffer.slice(this.inputIndex);
+            this.inputIndex --;
         }
     }
 
@@ -80,8 +81,8 @@ class TerminalProg {
     }
 
     printPrompt() {
-        this.appendToLastLine(TerminalProg.PROMPT);
-        this.text.cursorChar = TerminalProg.PROMPT.length;
+        this.appendToLastLine(Terminal.PROMPT);
+        this.text.cursorChar = Terminal.PROMPT.length;
         this.text.draw();
     }
 
@@ -99,10 +100,9 @@ class TerminalProg {
         this.inputIndex = 0;
     }
 
-    submitLine() {
+    async submitLine() {
         this.pushNewLine();
-
-        syscall("write", {output: [this.inputBuffer], streamId: this.shellWriterStreamId});
+        await writeln(this.inputBuffer, this.shellWriterStreamId);
         this.inputBuffer = "";
         this.inputIndex = 0;
     }
@@ -116,7 +116,7 @@ class TerminalProg {
     }
 
     moveLeft() {
-        if (this.text.cursorChar > TerminalProg.PROMPT.length) {
+        if (this.text.cursorChar > Terminal.PROMPT.length) {
             this.text.cursorChar --;
         }
 
@@ -142,7 +142,7 @@ class TerminalProg {
 async function main(args) {
 
 
-    const size = [400, 400];
+    const size = [500, 400];
 
     await syscall("graphics", {title: "Terminal", size: [size[0] + 30, size[1] + 20]});
 
@@ -152,45 +152,78 @@ async function main(args) {
     canvas.style.outline = "1px solid black";
     document.getElementsByTagName("body")[0].appendChild(canvas);
 
-    const {readerId: shellInputReaderId, writerId: shellInputWriterId} = await syscall("createPipe");
-    const {readerId: shellOutputReaderId, writerId: shellOutputWriterId} = await syscall("createPipe");
+    // We need to be leader in order to create a PTY
+    await syscall("joinNewSessionAndProcessGroup");
+
+    const {masterReaderId: terminalPtyReader, masterWriterId: terminalPtyWriter, slaveReaderId: shellReader, slaveWriterId: shellWriter} = 
+        await syscall("createPseudoTerminal");
+
+    // The shell sends commands to the terminal over this pipe
     const {readerId: commandReaderId, writerId: commandWriterId} = await syscall("createPipe");
 
-    const terminal = new TerminalProg(canvas, shellInputWriterId);
+    const terminal = new Terminal(canvas, terminalPtyWriter);
+    
+    let shellPid;
 
-    const shellPid = await syscall("spawn", {program: "shell", streamIds: [shellInputReaderId, shellOutputWriterId, commandWriterId],
+    syscall("handleInterruptSignal");
+
+    try {
+        shellPid = await syscall("spawn", {program: "shell", streamIds: [shellReader, shellWriter, commandWriterId],
         startNewProcessGroup: true});
 
-    window.addEventListener("keydown", function(event) {
-        if (event.ctrlKey && event.key == "c") { 
-            // This signal should be ignored by the shell itself, but (likely) kill any processes that it has spawned.
-            syscall("sendSignal", {signal: "interrupt", pgid: shellPid});
-        } 
-        
-        terminal.handleEvent("keydown", event);
-    });
+        const shellPgid = shellPid; // The shell is process group leader
+        await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: shellPgid});
 
-    while (true) {
-        const {line, streamId} = await syscall("readAny", {streamIds: [shellOutputReaderId, commandReaderId]});
+        window.addEventListener("keydown", function(event) {
+            if (event.ctrlKey && event.key == "c") { 
+                const pgid = shellPid; // The shell is process group leader
+                syscall("getForegroundProcessGroupOfPseudoTerminal").then((pgid) => {
+                    syscall("sendSignal", {signal: "interrupt", pgid});
+                })
+            } 
 
-        if (streamId == shellOutputReaderId) {
-            terminal.printOutput([line]);
-        } else {
-            console.log("TERMINAL RECEIVED COMMAND FROM SHELL: ", line);
-            command = JSON.parse(line);
-            if ("setTextStyle" in command) {
-                terminal.setTextStyle(command.setTextStyle);
-            } else if ("setBackgroundStyle" in command) {
-                terminal.setBackgroundStyle(command.setBackgroundStyle);
-            } else if ("printPrompt" in command){
-                terminal.printPrompt();
+            terminal.handleEvent("keydown", event);
+        });
+
+        while (true) {
+            const {line, streamId} = await syscall("readAny", {streamIds: [terminalPtyReader, commandReaderId]});
+
+            if (streamId == terminalPtyReader) {
+                terminal.printOutput([line]);
             } else {
-                console.error("Unhandled terminal command: ", command);
+                command = JSON.parse(line);
+                if ("setTextStyle" in command) {
+                    terminal.setTextStyle(command.setTextStyle);
+                } else if ("setBackgroundStyle" in command) {
+                    terminal.setBackgroundStyle(command.setBackgroundStyle);
+                } else if ("printPrompt" in command){
+                    terminal.printPrompt();
+                } else {
+                    console.error("Unhandled terminal command: ", command);
+                }
             }
+
         }
+    } catch (error) {
+        console.log("KILLING SHELL...");
 
+        // TODO: Rather than sending a kill to the shell's process group, we should send a hangup (https://www.gnu.org/software/libc/manual/html_node/Termination-Signals.html#index-SIGHUP)
+        // to the entire session that's associated with the PTY. That should cause all the processes associated with the terminal to exit, rather than just the shell.
+
+        // https://man7.org/linux/man-pages/man2/setsid.2.html
+        // https://stackoverflow.com/a/55013260
+        // OR RATHER; when the shell process exits, this should trigger the kernel to send HUP to the PTY's foreground process group
+
+        if (shellPid != undefined) {
+            // The shell is process group leader
+            await syscall("sendSignal", {signal: "kill", pgid: shellPid});
+        }
+        console.log("SHUTTING DOWN TERMINAL.")
+
+        if (error.name != "ProcessInterrupted") {
+            throw error;
+        }
     }
-
 
 }
 
