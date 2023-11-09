@@ -33,7 +33,7 @@ class System {
 
         const programs = [
             "countdown", "cat", "test", "snake", "animation", "editor", "sudoku", "plot", 
-            "ls", "time", "launcher", "shell", "terminal"
+            "ls", "time", "launcher", "shell", "terminal", "ps"
         ];
         let files = {
             "textfile": ["first line", "", "third line"],
@@ -46,7 +46,7 @@ class System {
         }
         system.files = files;
 
-        const pid = system.spawnProcess({programName: "terminal", args: [], streams: {}, ppid: null, pgid: null, sid: null});
+        const pid = system.spawnProcess({programName: "terminal", args: [], streams: {}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }
@@ -159,7 +159,7 @@ class System {
             if (lines[0] == "<script>") {
                 const code = lines.slice(1).join("\n");
                 const pid = this.nextPid ++;
-                if (pgid == null) {
+                if (pgid == "START_NEW") {
                     pgid = pid;  // The new process becomes leader of a new process group
                 }
                 if (sid == null) {
@@ -395,7 +395,7 @@ class Syscalls {
         return this.system.readLinesFromFile(fileName);
     }
 
-    async spawn({program, args, nullStreams, streamIds, startNewProcessGroup}, ppid) {
+    async spawn({program, args, streamIds, pgid}, ppid) {
 
         const parentProc = this.system.processes[ppid];
 
@@ -408,20 +408,20 @@ class Syscalls {
                 console.assert(stream != undefined);
                 streams[i] = stream;
             }
-        } else if (nullStreams) {
-            const nullStream = new NullStream();
-            streams = {0: nullStream, 1: nullStream}
         } else {
             // Inherit the parent's streams
             streams = Object.assign({}, parentProc.streams);
         }
 
-        let pgid;
-        if (startNewProcessGroup) {
-            pgid = null;
-        } else {
-            // Join the parent's process group
-            pgid = parentProc.pgid;
+        if (pgid != "START_NEW") {
+            if (pgid != undefined) {
+                // TODO: Should only be allowed if that group belongs to the same session as this process
+                // Join a specific existing process group
+                pgid = parseInt(pgid);
+            } else {
+                // Join the parent's process group
+                pgid = parentProc.pgid;
+            }
         }
 
         // Join the parent's session
@@ -473,6 +473,9 @@ class Process {
 
     constructor(code, programName, args, system, pid, streams, ppid, pgid, sid) {
         console.assert(streams != undefined);
+        console.assert(Number.isInteger(pid));
+        console.assert(Number.isInteger(pgid));
+        console.assert(Number.isInteger(sid));
         if (args == undefined) {
             args = [];
         }
@@ -688,7 +691,7 @@ class Pipe {
 
     setRestrictReadsToProcessGroup(pgid) {
         this.restrictReadsToProcessGroup = pgid;
-        this.handleWaitingReaders();
+        while (this.handleWaitingReaders()) {}
     }
     
     isProcAllowedToRead(proc) {

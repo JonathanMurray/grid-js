@@ -5,7 +5,7 @@ class TextGrid {
     static HIGHLIGHT_FADED = "#EEEEEE";
 
     constructor(canvas) {
-        const grid = new Grid(canvas, {cellSize:[10, 16],  xOffset:1, yOffset:1});
+        const grid = new Grid(canvas, {cellSize:[9, 16],  xOffset:1, yOffset:1});
         this.grid = grid;
         this.canvas = canvas;
       

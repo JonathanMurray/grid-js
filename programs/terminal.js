@@ -141,8 +141,7 @@ class Terminal {
 
 async function main(args) {
 
-
-    const size = [500, 400];
+    const size = [700, 400];
 
     await syscall("graphics", {title: "Terminal", size: [size[0] + 30, size[1] + 20]});
 
@@ -169,7 +168,7 @@ async function main(args) {
 
     try {
         shellPid = await syscall("spawn", {program: "shell", streamIds: [shellReader, shellWriter, commandWriterId],
-        startNewProcessGroup: true});
+                                 pgid: "START_NEW"});
 
         const shellPgid = shellPid; // The shell is process group leader
         await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: shellPgid});
@@ -205,20 +204,11 @@ async function main(args) {
 
         }
     } catch (error) {
-        console.log("KILLING SHELL...");
-
-        // TODO: Rather than sending a kill to the shell's process group, we should send a hangup (https://www.gnu.org/software/libc/manual/html_node/Termination-Signals.html#index-SIGHUP)
-        // to the entire session that's associated with the PTY. That should cause all the processes associated with the terminal to exit, rather than just the shell.
-
-        // https://man7.org/linux/man-pages/man2/setsid.2.html
-        // https://stackoverflow.com/a/55013260
-        // OR RATHER; when the shell process exits, this should trigger the kernel to send HUP to the PTY's foreground process group
 
         if (shellPid != undefined) {
             // The shell is process group leader
             await syscall("sendSignal", {signal: "kill", pgid: shellPid});
         }
-        console.log("SHUTTING DOWN TERMINAL.")
 
         if (error.name != "ProcessInterrupted") {
             throw error;

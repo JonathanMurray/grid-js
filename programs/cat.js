@@ -1,7 +1,6 @@
 "use strict";
 
 
-const STDOUT = 1;
 
 async function main(args) {
     if (args.length >= 1) {
