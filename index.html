@@ -13,7 +13,9 @@
  
 </body>
 
-<script src="system.js"></script>
+<script src="kernel/system.js"></script>
+<script src="kernel/process.js"></script>
+<script src="kernel/syscalls.js"></script>
 
 <script>
 
@@ -26,7 +28,6 @@ window.addEventListener("keydown", function(event) {
         event.preventDefault();
     }
 });
-
 
 System.init().then((system) => {
     console.log("System initialised. Setting up window event listeners...");

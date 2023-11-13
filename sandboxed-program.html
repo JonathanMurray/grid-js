@@ -6,7 +6,9 @@
     "use strict";
 
     function init() {
-        let pid = null; // Set from message sent from system
+        // Set from message sent from system
+        let pid = null; 
+        let programName = null;
 
         window.addEventListener("keydown", function(event) {
             if (event.code == "Tab") {
@@ -18,12 +20,12 @@
             }
         });
 
-        console.log("Initializing program iframe ...");
+        console.debug("Initializing program iframe ...");
 
         let nextSyscallSequenceNum = 1;
         let messageCallbacks = {};
 
-        function syscall(syscall, arg) {
+        async function syscall(syscall, arg) {
             
             if (arg == undefined) {
                 // Syscall implementations that try to destructure args crash otherwise
@@ -46,11 +48,17 @@
             });
             console.debug("created syscall promise...");
             
-            return asyncSyscallResult;
+            try {
+                const syscallResult =  await asyncSyscallResult;
+                return syscallResult;
+            } catch (e) {
+                throw {name: e.name, message: e.message, cause: e};
+            }
         }
 
         function writeln(line, streamId) {
             if (streamId == undefined) {
+                // stdout by default
                 streamId = 1;
             }
             return syscall("write", {line, streamId});
@@ -61,35 +69,61 @@
         }
 
         async function onProgramCrashed(error) {
-            const lines = [`[${pid}] crashed!`].concat(error.stack.split('\\n'));
+
             console.warn("Program crashed: ", error);
-            for (let line of lines) {
-                await writeln(line);
+            console.warn("Caused by: ", error.cause);
+
+            await writeln(`[${pid}] crashed!`);
+
+            const stackLines = error.stack.split('\n');
+
+            const script = document.getElementById("program-script");
+            let programFirstLineIndex;
+            let programLastLineIndex;
+            for (const [i, scriptLine] of script.text.split("\n").entries()) {
+                if (programFirstLineIndex == undefined && scriptLine.includes("PROGRAM_START_MARKER")) {
+                    programFirstLineIndex = i;
+                } 
+                if (scriptLine.includes("PROGRAM_END_MARKER")) {
+                    programLastLineIndex = i;
+                }
             }
+
+            let hasStartedWritingStackLines = false;
+
+            const regex = /\(<(.+)>:(.+):(.+)\)/;
+            for (let stackLine of stackLines) {
+                const match = stackLine.match(regex);
+                if (match) {
+                    const fileName = match[1];
+                    if (fileName == "anonymous") {
+                        const lineNumber = parseInt(match[2]);
+                        if (lineNumber <= programLastLineIndex + 1) {
+                            const colNumber = parseInt(match[3]);
+                            const translatedStackLine = stackLine.replace(regex, `(${programName}:${lineNumber - programFirstLineIndex}:${colNumber})`);
+                            await writeln(translatedStackLine);
+                            hasStartedWritingStackLines = true;
+                        }
+                    }
+                } else if (!hasStartedWritingStackLines) {
+                    await writeln(stackLine);
+                }
+            }
+
             await syscall('exit');
         }
 
-        function runProgram(programCode, args) {
-
-            programCode = "try {\n" + 
-            "  const args = " + JSON.stringify(args) + ";\n" +
-            "  // START OF PROGRAM\n" +
-            programCode + "\n" +
-            "  // END OF PROGRAM\n" +
-            "  result = main(args);\n" + 
-            "  console.debug('program result', result);\n" +
-            "  Promise.resolve(result)\n" + 
-            "    .then((value) => { console.debug('Program result:', value); syscall('exit'); })\n" +
-            "    .catch((e) => { onProgramCrashed(e); })\n" +
-            "} catch (e) {\n" +
-            "  onProgramCrashed(e);\n" + 
-            "}\n";
-
-            console.debug("Running in sandboxed iframe: ", programCode);
-
+        function setupAndRunProgram(programCode, args) {
+            const placeholder = document.getElementById("placeholder-script");
+            const head = document.getElementsByTagName("head")[0];
+            head.removeChild(placeholder);
+            
             const script = document.createElement("script");
-            script.text = programCode;
-            document.getElementsByTagName("body")[0].appendChild(script);
+            script.setAttribute("id", "program-script");
+            script.text = placeholder.text = placeholder.text.replace("// PROGRAM_PLACEHOLDER", programCode);;
+            head.appendChild(script);
+            
+            runProgramAndCatchErrors(args);
         }
 
         window.addEventListener("mousedown", (event) => {
@@ -101,11 +135,14 @@
             console.debug("Sandboxed program received message:", message.data);
 
             if ("startProcess" in message.data) {
+                console.assert("programName" in message.data.startProcess);
                 console.assert("code" in message.data.startProcess);
                 console.assert("args" in message.data.startProcess);
                 console.assert("pid" in message.data.startProcess);
-                pid = message.data.startProcess.pid;
-                runProgram(message.data.startProcess.code, message.data.startProcess.args);
+                ({pid, programName} = message.data.startProcess);
+
+                const {code, args} = message.data.startProcess;
+                setupAndRunProgram(code, args);
             } else if ("syscallResult" in message.data) {
                 const sequenceNum = message.data.syscallResult.sequenceNum;
                 if ("success" in message.data.syscallResult) {
@@ -116,7 +153,7 @@
                 } else {
                     console.assert("error" in message.data.syscallResult);
                     let error = message.data.syscallResult.error;
-                    console.log("Received syscall error in iframe: ", error);
+                    console.debug("Received syscall error in iframe: ", error);
                     messageCallbacks[sequenceNum].reject(error);
                     delete messageCallbacks[sequenceNum]; // avoid leaking memory
                 }
@@ -135,4 +172,22 @@
     // Public API available to application code
     const {syscall, onProgramCrashed, writeln, readln, log} = init();
 
+</script>
+
+
+<script id="placeholder-script">
+    function runProgramAndCatchErrors(args) {
+        try {
+            // PROGRAM_START_MARKER
+            // PROGRAM_PLACEHOLDER
+            // PROGRAM_END_MARKER
+            result = main(args);
+            console.debug('program result', result);
+            Promise.resolve(result)
+                .then((value) => { console.debug("Program result: ", value); syscall("exit");})
+                .catch((e) => { onProgramCrashed(e); });
+        } catch (e) {
+            onProgramCrashed(e);
+        }
+    }
 </script>

@@ -124,20 +124,16 @@ class Terminal {
     }
 
     moveToStartOfLine() {
-        // TODO: account for prompt
-        this.text.moveToStartOfLine();
-
+        this.text.cursorChar = Terminal.PROMPT.length;
         this.inputIndex = 0;
     }
 
     moveToEndOfLine() {
         this.text.moveToEndOfLine();
-
         this.inputIndex = this.inputBuffer.length - 1;
     }
 
 }
-
 
 async function main(args) {
 
