@@ -232,16 +232,7 @@ async function main(args) {
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const size = [300, 300];
-
-    await syscall("graphics", {title: "Sudoku", size: [size[0] + 30, size[1] + 20]});
-
-    const canvas = document.createElement("canvas");
-    canvas.width = size[0];
-    canvas.height = size[1];
-    canvas.style.outline = "1px solid black";
-    document.getElementsByTagName("body")[0].appendChild(canvas);
-
+    const canvas = await stdlib.createWindow("Sudoku", [300, 300]);
     const app = new Sudoku(canvas);
 
     window.addEventListener("keydown", (event) => {

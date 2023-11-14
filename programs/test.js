@@ -9,7 +9,7 @@ async function run() {
 
 async function main(args) {
 
-    syscall("handleInterruptSignal");
+    await syscall("handleInterruptSignal");
 
     try {
         while (true) {

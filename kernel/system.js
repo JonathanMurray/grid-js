@@ -10,12 +10,9 @@ class System {
         this.processes = {};
 
         this.pseudoTerminals = {};
-        
-        this.maxZIndex = 1;
-
         this.files = {};
 
-        this.draggingWindow = null;
+        this.windowManager = new WindowManager();
     }
 
     static async init() {
@@ -39,6 +36,7 @@ class System {
             "echo",
             "editor", 
             "launcher", 
+            "lines",
             "ls", 
             "plot", 
             "ps", 
@@ -47,6 +45,7 @@ class System {
             "sudoku", 
             "terminal", 
             "test", 
+            "top",
             "time", 
         ];
         let files = {
@@ -89,33 +88,13 @@ class System {
         return result;
     }
 
-
-    focusProgramWindow(programWindow) {
-
-        if (programWindow.style.zIndex < this.maxZIndex) {
-            programWindow.style.zIndex = ++this.maxZIndex;
-        }
-
-        programWindow.getElementsByTagName("iframe")[0].focus();
-        programWindow.classList.add("focused");
-    }
-
     handleEvent(name, event) {
         if (name == "keydown") {
             console.log("system.keydown");
         } else if (name == "mousemove") {
-            if (this.draggingWindow != null) {
-                const {element, iframe, offset} = this.draggingWindow;
-                element.style.left = event.x - offset[0];
-                element.style.top = event.y - offset[1];
-                this.focusProgramWindow(element);
-            }
+            this.windowManager.onMouseMove(event);
         } else if (name == "mouseup") {
-            if (this.draggingWindow != null) {
-                const {element, iframe, offset} = this.draggingWindow;
-                this.focusProgramWindow(element);
-                this.draggingWindow = null;
-            }
+            this.windowManager.onMouseUp(event);
         } else if (name == "message") {
             if ("syscall" in event.data) {
                 // Sandboxed programs send us syscalls from iframe
@@ -123,8 +102,7 @@ class System {
             } else {
                 console.assert("iframeReceivedFocus" in event.data);
                 const pid = event.data.iframeReceivedFocus.pid;
-                const programWindow = document.getElementById("program-window-" + pid);
-                this.focusProgramWindow(programWindow);
+                this.windowManager.focusWindow(pid);
             }
         } else {
             console.warn("Unhandled system event", name, event);
@@ -138,9 +116,8 @@ class System {
 
         this.call(syscall, arg, pid, sequenceNum).then((result) => {
             console.log(`[${pid}] ${syscall}(${JSON.stringify(arg)}) --> ${JSON.stringify(result)}`);
-            const programWindow = document.getElementById("program-window-" + pid);
-            if (programWindow) {
-                const iframe = programWindow.getElementsByTagName("iframe")[0];
+            const iframe = this.windowManager.getProcessIframe(pid);
+            if (iframe) {
                 iframe.contentWindow.postMessage({syscallResult: {success: result, sequenceNum}}, "*");
                 console.debug("Sent syscall result to program iframe");
             } else {
@@ -149,9 +126,8 @@ class System {
         }).catch((error) => {
             if (error instanceof SyscallError || error.name == "ProcessInterrupted") {
                 console.warn(`[${pid}] ${syscall}(${JSON.stringify(arg)}) --> `, error);
-                const programWindow = document.getElementById("program-window-" + pid);
-                if (programWindow) {
-                    const iframe = programWindow.getElementsByTagName("iframe")[0];
+                const iframe = this.windowManager.getProcessIframe(pid);
+                if (iframe) {
                     iframe.contentWindow.postMessage({syscallResult: {error, sequenceNum}}, "*");
                     console.debug("Sent syscall error to program iframe");
                 } else {
@@ -161,10 +137,6 @@ class System {
                 console.error(`[${pid}] ${syscall}(${JSON.stringify(arg)}) --> `, error);
             }
         });
-    }
-
-    printOutput(output) {
-        this.terminal.printOutput(output);
     }
 
     spawnProcess({programName, args, streams, ppid, pgid, sid}) {
@@ -210,19 +182,13 @@ class System {
 
         console.log("Pseudo terminal sids: ", Object.keys(this.pseudoTerminals));
 
-        this.focusFrontMostWindow();
+        this.windowManager.focusFrontMostWindow();
     }
 
-    focusFrontMostWindow() {
-        const theWindow = this.frontMostWindow();
-        this.focusProgramWindow(theWindow);
-    }
-
-    frontMostWindow() {
-        const programWindows = Array.from(document.getElementsByClassName("program-window"));
-        return programWindows.reduce(function(prev, current) {
-            return (prev && prev.style.zIndex > current.style.zIndex) ? prev : current
-        });
+    createPseudoTerminal(sid) {
+        const pty = new PseudoTerminal();
+        this.pseudoTerminals[sid] = pty;
+        return pty;
     }
 
     saveLinesToFile(lines, fileName) {
@@ -248,7 +214,7 @@ class System {
             }
         }
         if (!foundSome) {
-            throw new SyscallError("no such process group");
+            console.log("no such process group");
         }
     }
 
@@ -284,8 +250,8 @@ class PseudoTerminal {
     // Pseudoterminal a.k.a. PTY is used for IO between the terminal and the shell.
     // https://man7.org/linux/man-pages/man7/pty.7.html
     // https://unix.stackexchange.com/questions/117981/what-are-the-responsibilities-of-each-pseudo-terminal-pty-component-software
-    constructor(foreground_pgid) {
-        this.foreground_pgid = foreground_pgid;
+    constructor() {
+        this.foreground_pgid = null;
         this.masterToSlave = new Pipe();
         this.slaveToMaster = new Pipe();
     }
@@ -298,7 +264,7 @@ class PseudoTerminal {
 
 class Pipe {
     constructor() {
-        this.buffer = [];
+        this.buffer = "";
         this.waitingReaders = [];
         this.restrictReadsToProcessGroup = null;
     }
@@ -327,10 +293,9 @@ class Pipe {
                         this.waitingReaders.splice(i, 1);
                     } else if (this.isProcAllowedToRead(proc)) {
                         this.waitingReaders.splice(i, 1);
-                        const line = this.buffer[0];
                         // Check that a read actually occurs. This is necessary because of readAny()
-                        if (reader(line)) {
-                            this.buffer.shift();
+                        if (reader(this.buffer)) {
+                            this.buffer = "";
                             return true; 
                         }
                     } else {
@@ -344,8 +309,8 @@ class Pipe {
     }
 
     requestWrite(writer) {
-        const line = writer();
-        this.buffer.push(line);
+        const text = writer();
+        this.buffer += text;
         this.handleWaitingReaders();
     }
 }

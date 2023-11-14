@@ -1,0 +1,214 @@
+
+<script src="grid.js"></script>
+<script src="text-grid.js"></script>
+
+<script src="stdlib.js"></script>
+
+<script>
+    "use strict";
+
+    function init() {
+        // Set from message sent from system
+        let programName = null;
+        let pid = null;
+
+        window.addEventListener("keydown", function(event) {
+            if (event.code == "Tab") {
+                event.preventDefault();
+            }
+
+            if (event.key == "s" && event.ctrlKey) {
+                event.preventDefault();
+            }
+        });
+
+        console.debug("Initializing program iframe ...");
+
+        class SyscallTracker {
+            constructor() {
+                this.pid = null; // must be assigned before use
+                this.nextSyscallSequenceNum = 1;
+                this.messageCallbacks = {};
+            }
+
+            async call(syscall, arg) {
+                
+                if (arg == undefined) {
+                    // Syscall implementations that try to destructure args crash otherwise
+                    arg = {};
+                }
+
+                let sequenceNum = this.nextSyscallSequenceNum ++;
+                console.assert(!(sequenceNum in this.messageCallbacks), `message id ${sequenceNum} in ${JSON.stringify(this.messageCallbacks)}`);
+                let callbacks = {};
+                this.messageCallbacks[sequenceNum] = callbacks;
+
+                console.debug("posting syscall...");
+                console.assert(this.pid != null, "pid must have been assigned");
+                parent.postMessage({syscall: {syscall, arg, pid: this.pid, sequenceNum}}, "*");
+                console.debug("posted syscall...");
+
+                const asyncSyscallResult = new Promise((resolve, reject) => {
+                    callbacks.resolve = resolve;
+                    callbacks.reject = reject;
+                });
+                console.debug("created syscall promise...");
+                
+                try {
+                    return await asyncSyscallResult;
+                } catch (e) {
+                    const newError = new Error(e.message);
+                    newError.name = e.name;
+                    newError.cause = e;
+                    throw newError;
+                    //throw {name: e.name, message: e.message, cause: e};
+                }
+            }
+
+            resolve(sequenceNum, result) {
+                console.debug("Received syscall result in iframe: ", result);
+                this.messageCallbacks[sequenceNum].resolve(result);
+                delete this.messageCallbacks[sequenceNum]; // avoid leaking memory
+            }
+
+            reject(sequenceNum, error) {
+                console.debug("Received syscall error in iframe: ", error);
+                this.messageCallbacks[sequenceNum].reject(error);
+                delete this.messageCallbacks[sequenceNum]; // avoid leaking memory
+            }
+        }
+
+      
+        async function onProgramCrashed(error) {
+
+            console.warn(`[${pid}] Program crashed: `, error);
+            console.warn(`[${pid}] Caused by: `, error.cause);
+
+            await writeln(`[${pid}] crashed!`);
+
+            if (error.stack) {
+                const stackLines = error.stack.split('\n');
+
+                const script = document.getElementById("program-script");
+                let programFirstLineIndex;
+                let programLastLineIndex;
+                for (const [i, scriptLine] of script.text.split("\n").entries()) {
+                    if (programFirstLineIndex == undefined && scriptLine.includes("PROGRAM_START_MARKER")) {
+                        programFirstLineIndex = i;
+                    } 
+                    if (scriptLine.includes("PROGRAM_END_MARKER")) {
+                        programLastLineIndex = i;
+                    }
+                }
+
+                let hasStartedWritingStackLines = false;
+
+                const regex = /\((.+):(.+):(.+)\)/;
+                for (let stackLine of stackLines) {
+                    const match = stackLine.match(regex);
+                    if (match) {
+                        const fileName = match[1];
+                        if (fileName == "<anonymous>" || fileName == programName) {
+                            const lineNumber = parseInt(match[2]);
+                            if (lineNumber <= programLastLineIndex + 1) {
+                                const colNumber = parseInt(match[3]);
+                                const translatedStackLine = stackLine.replace(regex, `(${programName}:${lineNumber - programFirstLineIndex}:${colNumber})`);
+                                await writeln(translatedStackLine);
+                                hasStartedWritingStackLines = true;
+                            }
+                        }
+                    } else if (!hasStartedWritingStackLines) {
+                        await writeln(stackLine);
+                    }
+                }
+            }
+            
+
+            await syscall('exit');
+        }
+
+        function setupAndRunProgram(programCode, args) {
+            const placeholder = document.getElementById("placeholder-script");
+            const body = document.getElementsByTagName("body")[0].style.margin = "0px";
+            const head = document.getElementsByTagName("head")[0];
+            head.removeChild(placeholder);
+            
+            const script = document.createElement("script");
+            script.setAttribute("id", "program-script");
+            
+            let text = placeholder.text;
+            text = text.replace("// PROGRAM_PLACEHOLDER", programCode);
+            // Make the chrome debugger output a stacktrace with proper links to the source code
+            // See https://stackoverflow.com/a/18621472
+            text += `\n//# sourceURL=${programName}`;
+           
+            script.text = text;
+
+            head.appendChild(script);
+            
+            programWrapper(args);
+        }
+
+        window.addEventListener("mousedown", (event) => {
+            parent.postMessage({iframeReceivedFocus: {pid: pid}}, "*");
+        });
+
+        const syscallTracker = new SyscallTracker();
+        const syscall = (syscall, arg) => syscallTracker.call(syscall, arg); 
+
+        window.addEventListener("message", message => {
+
+            console.debug("Sandboxed program received message:", message.data);
+
+            if ("startProcess" in message.data) {
+                console.assert("programName" in message.data.startProcess);
+                console.assert("code" in message.data.startProcess);
+                console.assert("args" in message.data.startProcess);
+                console.assert("pid" in message.data.startProcess);
+                ({programName, pid} = message.data.startProcess);
+                const {code, args} = message.data.startProcess;
+                syscallTracker.pid = pid;
+                setupAndRunProgram(code, args);
+            } else if ("syscallResult" in message.data) {
+                const sequenceNum = message.data.syscallResult.sequenceNum;
+                if ("success" in message.data.syscallResult) {
+                    const result = message.data.syscallResult.success;
+                    syscallTracker.resolve(sequenceNum, result);
+                } else {
+                    console.assert("error" in message.data.syscallResult);
+                    const error = message.data.syscallResult.error;
+                    syscallTracker.reject(sequenceNum, error);
+                }
+            } else {
+                console.error("Unhandled message in program iframe", message.data);
+            }
+        });
+
+        return {syscall, onProgramCrashed};
+    }
+
+    const {syscall, onProgramCrashed} = init();
+
+    // stdlib.js
+    const {write, writeln, readln, log} = stdlib;
+
+</script>
+
+
+<script id="placeholder-script">
+    function programWrapper(args) {
+        try {
+            // PROGRAM_START_MARKER
+            // PROGRAM_PLACEHOLDER
+            // PROGRAM_END_MARKER
+            result = main(args);
+            console.debug('program result', result);
+            Promise.resolve(result)
+                .then((value) => { console.debug("Program result: ", value); syscall("exit");})
+                .catch((e) => { onProgramCrashed(e); });
+        } catch (e) {
+            onProgramCrashed(e);
+        }
+    }
+</script>
+

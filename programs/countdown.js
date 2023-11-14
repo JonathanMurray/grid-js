@@ -8,10 +8,14 @@ async function main(args) {
     } else {
         counter = 3;
     }
-
+    
     while (counter > 0) {
-        await writeln("" + counter);
+        await write(`${counter} `);
         counter --;
-        await new Promise(r => setTimeout(r, 250));
+        for (let i = 0; i < 10; i++) {
+            await syscall("sleep", {millis: 100});
+            await write(".");
+        }
+        await writeln("");
     }
 }

@@ -2,12 +2,12 @@
 function validateSyscallArgs(args, required, optional) {
     for (let requiredArg of required) {
         if (!(requiredArg in args)) {
-            throw new SyscallError(`missing argument: ${requiredArg}. (args=${JSON.stringify(args)})`)
+            throw new SyscallError(`missing syscall argument: '${requiredArg}'. args=${JSON.stringify(args)}`)
         }
     }
     for (let argName in args) {
         if (!(required.includes(argName) || optional.includes(argName))) {
-            throw new SyscallError(`unexpected argument: ${argName}=${args[argName]}. (expected=${required})`)
+            throw new SyscallError(`unexpected syscall argument: '${argName}=${args[argName]}'. allowed=${required.concat(optional)}`)
         }
     }
     return args;
@@ -33,8 +33,7 @@ class Syscalls {
         if (proc.pid != proc.pgid) {
             throw new SyscallError("only process group leader can create a pseudoterminal")
         }
-        const pty = new PseudoTerminal(proc);
-        this.system.pseudoTerminals[proc.sid] = pty;
+        const pty = this.system.createPseudoTerminal(proc.sid);
 
         const masterReaderId = proc.addStream(new PipeReader(pty.slaveToMaster));
         const masterWriterId = proc.addStream(new PipeWriter(pty.masterToSlave));
@@ -129,9 +128,9 @@ class Syscalls {
     }
 
     write(args, pid) {
-        const {line, streamId} = validateSyscallArgs(args, ["line", "streamId"]);
+        const {text, streamId} = validateSyscallArgs(args, ["text", "streamId"]);
         const proc = this.system.process(pid);
-        return proc.write(streamId, line);
+        return proc.write(streamId, text);
     }
 
     async read(args, pid) {
@@ -198,47 +197,23 @@ class Syscalls {
     }
 
     waitForExit(pidToWaitFor, pid) {
-        const proc = this.system.processes[pidToWaitFor];
+        const proc = this.system.process(pid);
+        const procToWaitFor = this.system.process(pidToWaitFor);
         if (proc) {
             console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
-            return proc.waitForExit();
+            return proc.waitForOtherToExit(procToWaitFor);
         }
         console.debug("Process doesn't exist / has already exited");
     }
 
     graphics(args, pid) {
         let {title, size} = validateSyscallArgs(args, ["title", "size"]);
-        const programWindow = document.getElementById("program-window-" + pid);
-        programWindow.style.display = "block";
+        this.system.windowManager.makeWindowVisible(title, size, pid);
+    }
 
-        const iframe = programWindow.getElementsByTagName("iframe")[0];
-        if (size != undefined) {
-            iframe.width = size[0];
-            iframe.height = size[1];
-        }
-        title = `[${pid}] ${title || "Untitled"}`
-        programWindow.getElementsByClassName("program-window-header")[0].innerHTML = title;
-
-        let left;
-        let top;
-
-        const frontMostWindow = this.system.frontMostWindow();
-        
-        if (frontMostWindow.style != undefined && frontMostWindow.style.left) {
-            const offset = 25;
-            left = parseInt(frontMostWindow.style.left.replace("px", "")) + offset;
-            top = parseInt(frontMostWindow.style.top.replace("px", "")) + offset;
-        } else {
-            const availableScreenSpace = document.getElementsByTagName("body")[0].getBoundingClientRect()
-            left = availableScreenSpace.width / 2 - programWindow.getBoundingClientRect().width / 2;
-            top = availableScreenSpace.height / 2 - programWindow.getBoundingClientRect().height / 2;
-        }
-
-        programWindow.style.left = left;
-        programWindow.style.top = top;
-
-        this.system.focusProgramWindow(programWindow);
-
-        console.debug("showed iframe", iframe);
+    sleep(args, pid) {
+        let {millis} = validateSyscallArgs(args, ["millis"]);
+        const proc = this.system.process(pid);
+        return proc.sleep(millis);
     }
 }

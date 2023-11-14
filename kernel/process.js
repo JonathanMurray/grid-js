@@ -33,22 +33,22 @@ class Process {
         this.ongoingSyscalls = {};
 
         this.nextPromiseId = 1;
-        this.promiseCallbacks = {};
+        this.syscallHandles = {};
     }
 
     receiveInterruptSignal() {
         if (this.interruptSignalBehaviour == InterruptSignalBehaviour.EXIT) {
             this.system.onProcessExit(this.pid);
         } else if (this.interruptSignalBehaviour == InterruptSignalBehaviour.HANDLE) {
-            console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this.promiseCallbacks)}`)
+            console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this.syscallHandles)}`)
             // Any ongoing syscalls will throw an error that can be
             // caught in the application code.
-            for (let id of Object.keys(this.promiseCallbacks)) {
-                this.promiseCallbacks[id].reject({name: "ProcessInterrupted", message: "interrupted"});
-                delete this.promiseCallbacks[id];
+            for (let id of Object.keys(this.syscallHandles)) {
+                this.syscallHandles[id].reject({name: "ProcessInterrupted", message: "interrupted"});
+                delete this.syscallHandles[id];
             }
         } else if (this.interruptSignalBehaviour == InterruptSignalBehaviour.IGNORE) {
-            //console.debug(`[${this.pid}] ignoring interrupt signal`)
+            console.log(`[${this.pid}] ignoring interrupt signal`)
         }
     }
 
@@ -60,21 +60,21 @@ class Process {
             rejector = reject;
         });
         const promiseId = this.nextPromiseId ++;
-        this.promiseCallbacks[promiseId] = {resolve: resolver, reject: rejector};
+        this.syscallHandles[promiseId] = {resolve: resolver, reject: rejector};
         return {promise, promiseId};
     }
 
     resolvePromise(id, result) {
-        if (id in this.promiseCallbacks) {
-            this.promiseCallbacks[id].resolve(result);
-            delete this.promiseCallbacks[id];
+        if (id in this.syscallHandles) {
+            this.syscallHandles[id].resolve(result);
+            delete this.syscallHandles[id];
             return true;
         }
         // Promise was not resolved. It had likely been rejected already.
         return false;
     }
     
-    write(streamId, line) {
+    write(streamId, text) {
         const outputStream = this.streams[streamId];
         console.assert(outputStream != undefined);
         const {promise, promiseId} = this.promise();
@@ -84,7 +84,7 @@ class Process {
                 return null; // signal that we are no longer attempting to write
             }
             if (this.resolvePromise(promiseId)) {
-                return line; // give the line to the stream
+                return text; // give the text to the stream
             }
             return null; // We ended up not writing.
         });
@@ -96,8 +96,8 @@ class Process {
         const inputStream = this.streams[streamId];
         console.assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
         const {promise, promiseId} = this.promise();
-        const reader = (line) => {
-            return this.resolvePromise(promiseId, line);
+        const reader = (text) => {
+            return this.resolvePromise(promiseId, text);
         }
         inputStream.requestRead({reader, proc: this});
         return promise;
@@ -112,12 +112,12 @@ class Process {
             const inputStream = this.streams[streamId];
             console.assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
 
-            const reader = (line) => {
+            const reader = (text) => {
                 if (hasResolvedPromise) {
-                    return false; // signal that we ended up not reading the line
+                    return false; // signal that we ended up not reading 
                 }
     
-                hasResolvedPromise = this.resolvePromise(promiseId, {line, streamId});
+                hasResolvedPromise = this.resolvePromise(promiseId, {text, streamId});
                 return hasResolvedPromise;
             };
 
@@ -137,66 +137,53 @@ class Process {
         const iframe = document.createElement("iframe");
         this.iframe = iframe;
         iframe.sandbox = "allow-scripts";
-
         iframe.onload = () => {
             iframe.contentWindow.postMessage({startProcess: {programName: this.programName, code: this.code, args: this.args, pid: this.pid}}, "*");
         }
+        iframe.src = "sandboxed-process.html";
 
-        iframe.src = "sandboxed-program.html";
-
-        const header = document.createElement("div");
-        header.classList.add("program-window-header");
-        header.style = "background:lightgray; font-family: system-ui; font-weight: bold;";
-        header.innerHTML = "Program sandbox";
-        
-        const programWindow = document.createElement("div");
-        this.programWindow = programWindow;
-        programWindow.style = "display: none; position: absolute; background: white; user-select: none;";
-        programWindow.id = "program-window-" + this.pid;
-        programWindow.classList.add("program-window");
-
-        programWindow.appendChild(header);
-        programWindow.appendChild(iframe);
-
-        programWindow.addEventListener("mousedown", (event) => {
-            const left = parseInt(programWindow.style.left.replace("px", "")) || programWindow.getBoundingClientRect().x;
-            const top = parseInt(programWindow.style.top.replace("px", "")) || programWindow.getBoundingClientRect().y;
-            this.system.draggingWindow = {element: programWindow, offset: [event.x - left, event.y - top], iframe};
-            this.system.focusProgramWindow(programWindow);
-        });
-
-        iframe.addEventListener("mousedown", (event) => {
-            programWindow.classList.add("focused");
-        });
-
-        iframe.addEventListener("focus", (event) => {
-            programWindow.classList.add("focused");
-        });
-        header.addEventListener("focus", (event) => {
-            programWindow.classList.add("focused");
-        });
-
-        iframe.addEventListener("blur", (event) => {
-            programWindow.classList.remove("focused");
-        });
-
-        document.getElementsByTagName("body")[0].appendChild(programWindow);
+        this.system.windowManager.createWindow(iframe, this.pid);
     }
 
     onExit() {
-        this.programWindow.remove();
+        console.log(this.pid, "onExit");
+        this.system.windowManager.removeWindow(this.pid);
         for (let waiter of this.exitWaiters) {
+            console.log(this.pid, "calling waiter");
             waiter();
         }
         this.hasExited = true;
     }
 
-    waitForExit() {
-        let waiter;
-        // TODO handle properly so that it can be interrupted
-        const exitPromise = new Promise((resolve) => waiter = resolve);
-        this.exitWaiters.push(waiter);
-        return exitPromise;
+    waitForOtherToExit(otherProc) {
+        const {promise, promiseId} = this.promise();
+        
+        function resolve() {
+            console.log(this.pid, "waitForExit was resolved!");
+            this.resolvePromise(promiseId);
+        }
+
+        otherProc.exitWaiters.push(resolve.bind(this));
+        return promise;
+    }
+
+    sleep(millis) {
+        const {promise, promiseId} = this.promise();
+        
+        const granularityMs = 10;
+        const waitUntil = Date.now() + millis;
+
+        function maybeWakeUp() {
+            if (Date.now() > waitUntil) {
+                this.resolvePromise(promiseId);
+            } else {
+                setTimeout(maybeWakeUp.bind(this), granularityMs);
+            }
+        }
+
+        maybeWakeUp.bind(this)();
+
+        return promise;
     }
 
 }

@@ -13,7 +13,6 @@ class Snake {
     constructor(canvas) {
         const grid = new Grid(canvas, {numColumns:16, numRows:16, xOffset:1, yOffset:1});
         this.grid = grid;
-        this.canvas = canvas;
 
         grid.showBackgroundLines = false;
 
@@ -193,16 +192,7 @@ async function main(args) {
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const size = [300, 300];
-
-    await syscall("graphics", {title: "Snake", size: [size[0] + 30, size[1] + 20]});
-
-    const canvas = document.createElement("canvas");
-    canvas.width = size[0];
-    canvas.height = size[1];
-    canvas.style.outline = "1px solid black";
-    document.getElementsByTagName("body")[0].appendChild(canvas);
-    
+    const canvas = await stdlib.createWindow("Snake", [324, 324]);
     const snake = new Snake(canvas);
 
     window.addEventListener("keydown", function(event) {

@@ -4,28 +4,32 @@ class Grid {
     constructor(canvas, {numColumns, numRows, cellSize, xOffset, yOffset}) {
         xOffset = xOffset || 0;
         yOffset = yOffset || 0;
+        const canvasResolution = [parseInt(canvas.style.width), parseInt(canvas.style.height)];
+        this.canvasResolution = canvasResolution;
         if (numColumns != undefined) {
             console.assert(numRows != undefined);
             if (cellSize == undefined) {
-                cellSize = [Math.floor((canvas.width - xOffset) / numColumns), 
-                            Math.floor((canvas.height - yOffset) / numRows)];
+                cellSize = [Math.floor((canvasResolution[0] - xOffset) / numColumns), 
+                            Math.floor((canvasResolution[1] - yOffset) / numRows)];
             }
         } else {
             console.assert(cellSize != undefined);
-            numColumns = Math.floor((canvas.width - xOffset) / cellSize[0]);
-            numRows = Math.floor((canvas.height - yOffset) / cellSize[1]);
+            numColumns = Math.floor((canvasResolution[0] - xOffset) / cellSize[0]);
+            numRows = Math.floor((canvasResolution[1] - yOffset) / cellSize[1]);
         }
         console.assert(cellSize.length == 2);
 
-        if (xOffset + numColumns * cellSize[0] > canvas.width) {
-            console.warn(`Grid width exceeds canvas size! ${xOffset + numColumns * cellSize[0]} > ${canvas.width}`);
+        if (xOffset + numColumns * cellSize[0] > canvasResolution[0]) {
+            console.warn(`Grid width exceeds canvas size! ${xOffset + numColumns * cellSize[0]} > ${canvasResolution[0]}`);
         }
-        if (yOffset + numRows * cellSize[1] > canvas.height) {
-            console.warn(`Grid height exceeds canvas size! ${yOffset + numRows * cellSize[1]} > ${canvas.height}`);
+        if (yOffset + numRows * cellSize[1] > canvasResolution[1]) {
+            console.warn(`Grid height exceeds canvas size! ${yOffset + numRows * cellSize[1]} > ${canvasResolution[1]}`);
         }
 
         this.canvas = canvas;
         this.ctx = canvas.getContext("2d");
+        const scale = window.devicePixelRatio;
+        this.ctx.scale(scale, scale);
 
         this.numColumns = numColumns;
         this.numRows = numRows;
@@ -53,6 +57,8 @@ class Grid {
 
         this.centerText = true;
         this.showBackgroundLines = true;
+
+        this.background = "white";
     }
 
     pixelToCell(x, y) {
@@ -66,8 +72,8 @@ class Grid {
 
     draw() {
 
-        this.ctx.fillStyle = "white"; 
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillStyle = this.background;
+        this.ctx.fillRect(0, 0, this.canvasResolution[0], this.canvasResolution[1]);
 
         const w = this.cellSize[0];
         const h = this.cellSize[1];

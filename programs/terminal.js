@@ -7,13 +7,11 @@ class Terminal {
     constructor(canvas, shellWriterStreamId) {
         this.text = new TextGrid(canvas);
         this.canvas = canvas;
-
-        this.text.setTextStyle("blue");
-
         this.inputBuffer = "";
         this.inputIndex = 0;
-
         this.shellWriterStreamId = shellWriterStreamId;
+
+        this.text.setTextStyle("blue");
     }
 
     setTextStyle(style) {
@@ -67,11 +65,16 @@ class Terminal {
         }
     }
 
-    printOutput(output) {
-        for (let line of output) {
+    printOutput(text) {
+        let newlineIndex = text.indexOf("\n");
+        while (newlineIndex >= 0) {
+            let line = text.slice(0, newlineIndex);
             this.appendToLastLine(line);
             this.pushNewLine();
+            text = text.slice(newlineIndex + 1);
+            newlineIndex = text.indexOf("\n");
         }
+        this.appendToLastLine(text);
         this.text.cursorChar = this.text.lines[this.text.lines.length - 1].length;
         this.text.draw();
     }
@@ -93,7 +96,7 @@ class Terminal {
     }
 
     ctrlC() {
-        this.printOutput(["^C"])
+        this.printOutput("^C\n")
         this.printPrompt();
 
         this.inputBuffer = "";
@@ -133,19 +136,17 @@ class Terminal {
         this.inputIndex = this.inputBuffer.length - 1;
     }
 
+    clear() {
+        this.inputBuffer = "";
+        this.inputIndex = 0;
+        this.text.clear();
+    }
+
 }
 
 async function main(args) {
 
-    const size = [700, 400];
-
-    await syscall("graphics", {title: "Terminal", size: [size[0] + 30, size[1] + 20]});
-
-    const canvas = document.createElement("canvas");
-    canvas.width = size[0];
-    canvas.height = size[1];
-    canvas.style.outline = "1px solid black";
-    document.getElementsByTagName("body")[0].appendChild(canvas);
+    const canvas = await stdlib.createWindow("Terminal", [700, 400]);
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
@@ -153,17 +154,14 @@ async function main(args) {
     const {masterReaderId: terminalPtyReader, masterWriterId: terminalPtyWriter, slaveReaderId: shellReader, slaveWriterId: shellWriter} = 
         await syscall("createPseudoTerminal");
 
-    // The shell sends commands to the terminal over this pipe
-    const {readerId: commandReaderId, writerId: commandWriterId} = await syscall("createPipe");
-
     const terminal = new Terminal(canvas, terminalPtyWriter);
     
     let shellPid;
 
-    syscall("handleInterruptSignal");
+    await syscall("handleInterruptSignal");
 
     try {
-        shellPid = await syscall("spawn", {program: "shell", streamIds: [shellReader, shellWriter, commandWriterId],
+        shellPid = await syscall("spawn", {program: "shell", streamIds: [shellReader, shellWriter],
                                  pgid: "START_NEW"});
 
         const shellPgid = shellPid; // The shell is process group leader
@@ -181,25 +179,42 @@ async function main(args) {
         });
 
         while (true) {
-            const {line, streamId} = await syscall("readAny", {streamIds: [terminalPtyReader, commandReaderId]});
+            const text = await syscall("read", {streamId: terminalPtyReader});
 
-            if (streamId == terminalPtyReader) {
-                terminal.printOutput([line]);
-            } else {
-                command = JSON.parse(line);
+            const escapeIndex = text.indexOf("\x1B");
+            if (escapeIndex >= 0) {
+                const before = text.slice(0, escapeIndex);
+                terminal.printOutput(before);
+                
+                const commandLen = text.slice(escapeIndex + 1, escapeIndex + 2).charCodeAt(0);
+                let command = text.slice(escapeIndex + 2, escapeIndex + 2 + commandLen);
+
+                command = JSON.parse(command);
                 if ("setTextStyle" in command) {
                     terminal.setTextStyle(command.setTextStyle);
                 } else if ("setBackgroundStyle" in command) {
                     terminal.setBackgroundStyle(command.setBackgroundStyle);
                 } else if ("printPrompt" in command){
                     terminal.printPrompt();
+                } else if ("clear" in command) {
+                    terminal.clear();
                 } else {
                     console.error("Unhandled terminal command: ", command);
                 }
-            }
 
+                const after = text.slice(escapeIndex + 2 + commandLen);
+                terminal.printOutput(after);
+            } else {
+                terminal.printOutput(text);
+            }
         }
     } catch (error) {
+
+        console.warn(error);
+
+        if (error.name != "ProcessInterrupted") {
+            console.warn("Terminal crash: ", error);
+        }
 
         if (shellPid != undefined) {
             // The shell is process group leader

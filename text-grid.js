@@ -7,7 +7,6 @@ class TextGrid {
     constructor(canvas) {
         const grid = new Grid(canvas, {cellSize:[9, 16],  xOffset:1, yOffset:1});
         this.grid = grid;
-        this.canvas = canvas;
       
         this.cursorLine = 0;
         this.cursorChar = 0;
@@ -23,6 +22,13 @@ class TextGrid {
         this.draw();
     }
 
+    clear() {
+        this.cursorLine = 0;
+        this.cursorChar = 0;
+        this.lines = [""];
+        this.draw();
+    }
+
     setTextStyle(style) {
         this.grid.forEachCell((col, row) => {
             this.grid.foregrounds[col][row] = style;
@@ -31,6 +37,7 @@ class TextGrid {
 
     setBackgroundStyle(style) {
         this.background = style;
+        this.grid.background = style;
     }
 
     setFocused(focused) {

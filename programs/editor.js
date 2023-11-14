@@ -134,14 +134,7 @@ async function main(args) {
     }
 
     const size = [800, 600];
-
-    await syscall("graphics", {title: "Editing: " + fileName, size: [size[0] + 30, size[1] + 20]});
-
-    const canvas = document.createElement("canvas");
-    canvas.width = size[0];
-    canvas.height = size[1];
-    canvas.style.outline = "1px solid black";
-    document.getElementsByTagName("body")[0].appendChild(canvas);
+    const canvas = await stdlib.createWindow("Editing: " + fileName, size);
 
     let lines = await syscall("readFromFile", fileName);
     

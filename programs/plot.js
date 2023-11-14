@@ -6,6 +6,8 @@ class Plot {
         this.canvas = canvas;
         
         const ctx = canvas.getContext("2d");
+        const scale = window.devicePixelRatio;
+        this.ctx.scale(scale, scale);
 
         this.origin = [canvas.width / 2, canvas.height / 2];
 
@@ -75,15 +77,7 @@ async function main(args) {
         title += ": " + func;
     }
 
-    const size = [300, 300];
-
-    await syscall("graphics", {title, size: [size[0] + 30, size[1] + 20]});
-
-    const canvas = document.createElement("canvas");
-    canvas.width = size[0];
-    canvas.height = size[1];
-    canvas.style.outline = "1px solid black";
-    document.getElementsByTagName("body")[0].appendChild(canvas);
+    const canvas = await stdlib.createWindow(title, [300, 300]);
     
     const app = new Plot(canvas, func);
 

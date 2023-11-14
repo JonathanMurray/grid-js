@@ -1,19 +1,5 @@
 "use strict";
 
-const COMMAND_STREAM = 2;
-
-async function printPrompt() {
-    await writeln(JSON.stringify({printPrompt: null}), COMMAND_STREAM);
-}
-
-async function setTextStyle(style) {
-    await writeln(JSON.stringify({setTextStyle: style}), COMMAND_STREAM);
-}
-
-async function setBackgroundStyle(style) {
-    await writeln(JSON.stringify({setBackgroundStyle: style}), COMMAND_STREAM);
-}
-
 let backgroundedJobs = [];
 
 const builtins = {
@@ -33,7 +19,7 @@ const builtins = {
 
     textcolor: async function(args) {
         if (args.length >= 1) {
-            await setTextStyle(args[0]);
+            await stdlib.terminal.setTextStyle(args[0]);
         } else {
             await writeln("<missing color argument>");
         }
@@ -41,10 +27,14 @@ const builtins = {
 
     bgcolor: async function(args) {
         if (args.length >= 1) {
-            await setBackgroundStyle(args[0]);
+            await stdlib.terminal.setBackgroundStyle(args[0]);
         } else {
             await writeln("<missing color argument>");
         }
+    },
+
+    clear: async function(args) {
+        await stdlib.terminal.clear();
     },
 
     kill: async function(args) {
@@ -155,13 +145,13 @@ async function main(args) {
     // The shell shouldn't be killed by ctrl-C when in the foreground
     await syscall("ignoreInterruptSignal");
 
-    await setTextStyle("#0F0");
-    await setBackgroundStyle("black");
+    await stdlib.terminal.setTextStyle("#0F0");
+    await stdlib.terminal.setBackgroundStyle("black");
 
-    await writeln("[WELCOME TO THE SHELL]");
+    await writeln("Welcome. Type help to get started.");
 
     while (true) {
-        await printPrompt();
+        await stdlib.terminal.printPrompt();
 
         const input = await readln();
 
@@ -185,7 +175,7 @@ async function main(args) {
         const {builtin, pipeline} = parsed;
 
         if (builtin) {
-            await builtins[builtin.name](args);
+            await builtins[builtin.name](builtin.args);
         } else {
             const {commands, runInBackground} = pipeline;
 

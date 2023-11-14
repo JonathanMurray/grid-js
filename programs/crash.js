@@ -1,9 +1,9 @@
 "use strict";
 
 async function main(args) {
-    inner();
+    await inner();
 }
 
-function inner() {
-    what("huh?");
+async function inner() {
+    await syscall("write", {text: "hey", whatIsThis: 1});
 }
