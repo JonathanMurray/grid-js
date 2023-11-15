@@ -1,5 +1,7 @@
 "use strict";
 
+const EOT = "\x04";
+
 class Terminal {
 
     static PROMPT = "> ";
@@ -27,6 +29,8 @@ class Terminal {
             const key = event.key;
             if(event.ctrlKey && key == "c") {
                 this.ctrlC();
+            } else if(event.ctrlKey && key == "d") {
+                this.ctrlD();  
             } else if (key == "Backspace") {
                 this.backspace();
             } else if (key == "Enter") {
@@ -96,11 +100,16 @@ class Terminal {
     }
 
     ctrlC() {
-        this.printOutput("^C\n")
+        this.printOutput("^C\n");
         this.printPrompt();
 
         this.inputBuffer = "";
         this.inputIndex = 0;
+    }
+
+    async ctrlD() {
+        this.printOutput("^D\n");
+        await write(EOT, this.shellWriterStreamId);
     }
 
     async submitLine() {

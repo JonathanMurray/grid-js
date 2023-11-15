@@ -7,7 +7,7 @@ class Plot {
         
         const ctx = canvas.getContext("2d");
         const scale = window.devicePixelRatio;
-        this.ctx.scale(scale, scale);
+        ctx.scale(scale, scale);
 
         this.origin = [canvas.width / 2, canvas.height / 2];
 

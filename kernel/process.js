@@ -1,14 +1,11 @@
 
 class Process {
 
-    constructor(code, programName, args, system, pid, streams, ppid, pgid, sid) {
+    constructor(code, programName, args, pid, streams, ppid, pgid, sid) {
         console.assert(streams != undefined);
         console.assert(Number.isInteger(pid));
         console.assert(Number.isInteger(pgid));
         console.assert(Number.isInteger(sid));
-        if (args == undefined) {
-            args = [];
-        }
         this.code = code;
         this.pid = pid; // Process ID
         this.ppid = ppid; // Parent process ID
@@ -16,21 +13,19 @@ class Process {
         this.sid = sid; // Session ID
         this.programName = programName;
         this.args = args;
-        this.exitWaiters = [];
-        this.system = system;
-        this.streams = streams; // For reading and writing. By convention 0=stdin, 1=stdout
         
+        this.streams = streams; // For reading and writing. By convention 0=stdin, 1=stdout
         this.nextStreamId = 0;
         for (let streamId of Object.keys(streams)) {
             streamId = parseInt(streamId);
             this.nextStreamId = Math.max(this.nextStreamId, streamId + 1);
         }
         console.assert(this.nextStreamId != NaN);
+        
+        this.exitValue = null;
+        this.exitWaiters = [];
 
-        this.hasExited = false;
         this.interruptSignalBehaviour = InterruptSignalBehaviour.EXIT;
-
-        this.ongoingSyscalls = {};
 
         this.nextPromiseId = 1;
         this.syscallHandles = {};
@@ -38,18 +33,19 @@ class Process {
 
     receiveInterruptSignal() {
         if (this.interruptSignalBehaviour == InterruptSignalBehaviour.EXIT) {
-            this.system.onProcessExit(this.pid);
+            return true;
         } else if (this.interruptSignalBehaviour == InterruptSignalBehaviour.HANDLE) {
             console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this.syscallHandles)}`)
             // Any ongoing syscalls will throw an error that can be
             // caught in the application code.
             for (let id of Object.keys(this.syscallHandles)) {
-                this.syscallHandles[id].reject({name: "ProcessInterrupted", message: "interrupted"});
-                delete this.syscallHandles[id];
+                this.rejectPromise(id, {name: "ProcessInterrupted", message: "interrupted"});
             }
+            
         } else if (this.interruptSignalBehaviour == InterruptSignalBehaviour.IGNORE) {
             console.log(`[${this.pid}] ignoring interrupt signal`)
         }
+        return false
     }
 
     promise() {
@@ -62,6 +58,11 @@ class Process {
         const promiseId = this.nextPromiseId ++;
         this.syscallHandles[promiseId] = {resolve: resolver, reject: rejector};
         return {promise, promiseId};
+    }
+
+    rejectPromise(id, error) {
+        this.syscallHandles[id].reject(error);
+        delete this.syscallHandles[id];
     }
 
     resolvePromise(id, result) {
@@ -79,8 +80,13 @@ class Process {
         console.assert(outputStream != undefined);
         const {promise, promiseId} = this.promise();
         const self = this;
-        outputStream.requestWrite(() => {
-            if (self.hasExited) {
+        outputStream.requestWrite((error) => {
+            if (error != null) {
+                this.rejectPromise(promiseId, error);
+                return null;
+            }
+
+            if (self.exitValue != null) {
                 return null; // signal that we are no longer attempting to write
             }
             if (this.resolvePromise(promiseId)) {
@@ -96,13 +102,23 @@ class Process {
         const inputStream = this.streams[streamId];
         console.assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
         const {promise, promiseId} = this.promise();
-        const reader = (text) => {
-            return this.resolvePromise(promiseId, text);
+        const reader = ({error, text}) => {
+            if (error != undefined) {
+                this.rejectPromise(promiseId, error);
+                return false; // No read occurred
+            }
+            const didRead = this.resolvePromise(promiseId, text);
+            return didRead;
         }
         inputStream.requestRead({reader, proc: this});
         return promise;
     }
 
+    closeStream(streamId) {
+        this.streams[streamId].close();
+    }
+
+    /*
     readAny(streamIds) {
         const {promise, promiseId} = this.promise();
         let hasResolvedPromise = false;
@@ -126,6 +142,7 @@ class Process {
 
         return promise;
     }
+    */
 
     addStream(stream) {
         const streamId = this.nextStreamId ++;
@@ -133,37 +150,36 @@ class Process {
         return streamId;
     }
 
-    start() {
-        const iframe = document.createElement("iframe");
-        this.iframe = iframe;
-        iframe.sandbox = "allow-scripts";
-        iframe.onload = () => {
-            iframe.contentWindow.postMessage({startProcess: {programName: this.programName, code: this.code, args: this.args, pid: this.pid}}, "*");
-        }
-        iframe.src = "sandboxed-process.html";
+    onExit(exitValue) {
+        //console.log(this.pid, "onExit", exitValue);
+        this.exitValue = exitValue;
 
-        this.system.windowManager.createWindow(iframe, this.pid);
+        for (let streamId in this.streams) {
+            this.streams[streamId].close();
+        }
+
+        this.handleExitWaiters();
     }
 
-    onExit() {
-        console.log(this.pid, "onExit");
-        this.system.windowManager.removeWindow(this.pid);
-        for (let waiter of this.exitWaiters) {
-            console.log(this.pid, "calling waiter");
-            waiter();
+    handleExitWaiters() {
+        if (this.exitValue != null) {
+            for (let waiter of this.exitWaiters) {
+                //console.log(this.pid, "calling waiter");
+                waiter(this.exitValue);
+            }
         }
-        this.hasExited = true;
     }
 
     waitForOtherToExit(otherProc) {
         const {promise, promiseId} = this.promise();
         
-        function resolve() {
-            console.log(this.pid, "waitForExit was resolved!");
-            this.resolvePromise(promiseId);
+        function resolve(exitValue) {
+            //console.log(this.pid, "waitForExit was resolved: ", exitValue);
+            this.resolvePromise(promiseId, exitValue);
         }
 
         otherProc.exitWaiters.push(resolve.bind(this));
+        otherProc.handleExitWaiters();
         return promise;
     }
 

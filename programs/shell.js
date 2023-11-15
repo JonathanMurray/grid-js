@@ -76,8 +76,15 @@ async function runJobInForeground(job) {
     // Give the terminal to the new foreground group
     await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: job.pgid});
     const lastPid = job.pids.slice(-1)[0];
-    // TODO only last?
-    await syscall("waitForExit", lastPid);
+    for (let i = job.pids.length - 1; i >= 0; i--) {
+        const pid = job.pids[i];
+        try {
+            await syscall("waitForExit", pid);
+        } catch (e) {
+            console.log(`Shell caught error when waiting for foreground process ${pid}: `, e);
+        }
+    }
+   
     // Reclaim the terminal
     await syscall("setForegroundProcessGroupOfPseudoTerminal", {toSelf: true});
 }
@@ -154,6 +161,11 @@ async function main(args) {
         await stdlib.terminal.printPrompt();
 
         const input = await readln();
+        
+        if (input == null) {
+            // End of stream
+            break;
+        }
 
         const words = input.split(' ').filter(w => w !== '');
 
@@ -214,6 +226,17 @@ async function main(args) {
                 }
                 
                 const pid = await syscall("spawn", {program, args, streamIds: [stdin, stdout], pgid});
+
+                // Once a stream has been duplicated in the child, we should close our version, to ensure
+                // correct pipe behaviour when the child closes their version.
+                // https://man7.org/linux/man-pages/man7/pipe.7.html
+                if (stdin != shellStdin) {
+                    await syscall("close", {streamId: stdin});
+                }
+                if (stdout != shellStdout) {
+                    await syscall("close", {streamId: stdout});
+                }
+
                 pids.push(pid);
 
                 if (i == 0) {

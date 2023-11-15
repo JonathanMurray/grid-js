@@ -2,12 +2,12 @@
 function validateSyscallArgs(args, required, optional) {
     for (let requiredArg of required) {
         if (!(requiredArg in args)) {
-            throw new SyscallError(`missing syscall argument: '${requiredArg}'. args=${JSON.stringify(args)}`)
+            throw new SysError(`missing syscall argument: '${requiredArg}'. args=${JSON.stringify(args)}`)
         }
     }
     for (let argName in args) {
         if (!(required.includes(argName) || optional.includes(argName))) {
-            throw new SyscallError(`unexpected syscall argument: '${argName}=${args[argName]}'. allowed=${required.concat(optional)}`)
+            throw new SysError(`unexpected syscall argument: '${argName}=${args[argName]}'. allowed=${required.concat(optional)}`)
         }
     }
     return args;
@@ -28,10 +28,10 @@ class Syscalls {
     createPseudoTerminal(args, pid) {
         const proc = this.system.process(pid);
         if (proc.pid != proc.sid) {
-            throw new SyscallError("only session leader can create a pseudoterminal")
+            throw new SysError("only session leader can create a pseudoterminal")
         }
         if (proc.pid != proc.pgid) {
-            throw new SyscallError("only process group leader can create a pseudoterminal")
+            throw new SysError("only process group leader can create a pseudoterminal")
         }
         const pty = this.system.createPseudoTerminal(proc.sid);
 
@@ -46,12 +46,12 @@ class Syscalls {
     setForegroundProcessGroupOfPseudoTerminal(args, pid) {
         let {pgid, toSelf} = validateSyscallArgs(args, [], ["pgid", "toSelf"]);
         if ((pgid == undefined && toSelf == undefined) || (pgid != undefined && toSelf != undefined)) {
-            throw new SyscallError(`exactly one of pgid and toSelf should be set. pgid=${pgid}, toSelf=${toSelf}`);
+            throw new SysError(`exactly one of pgid and toSelf should be set. pgid=${pgid}, toSelf=${toSelf}`);
         }
         const proc = this.system.process(pid);
         const pty = this.system.pseudoTerminals[proc.sid];
         if (pty == undefined) {
-            throw new SyscallError("no pseudoterminal is controlled by this process' session")
+            throw new SysError("no pseudoterminal is controlled by this process' session")
         }
         if (toSelf) {
             pgid = proc.pgid;
@@ -63,7 +63,7 @@ class Syscalls {
         const proc = this.system.process(pid);
         const pty = this.system.pseudoTerminals[proc.sid];
         if (pty == undefined) {
-            throw new SyscallError("no pseudoterminal is controlled by this process' session")
+            throw new SysError("no pseudoterminal is controlled by this process' session")
         }
         return pty.foreground_pgid;
     }
@@ -80,17 +80,12 @@ class Syscalls {
     }
 
     listProcesses(args, pid) {
-        let procs = [];
-        for (let pid of Object.keys(this.system.processes)) {
-            const proc = this.system.process(pid);
-            procs.push({pid, ppid: proc.ppid, programName: proc.programName, pgid: proc.pgid});
-        }
-        return procs;
+        return this.system.listProcesses();
     }
 
     exit(args, pid) {
         console.assert(pid != undefined);
-        return this.system.onProcessExit(pid);
+        return this.system.onProcessExit(args, pid);
     }
 
     sendSignal(args, senderPid) {
@@ -98,19 +93,19 @@ class Syscalls {
         const {signal, pid, pgid} = validateSyscallArgs(args, ["signal"], ["pid", "pgid"]);
 
         if ((pid == undefined && pgid == undefined) || (pid != undefined && pgid != undefined)) {
-            throw new SyscallError(`exactly one of pid and pgid should be set. pid=${pid}, pgid=${pgid}`);
+            throw new SysError(`exactly one of pid and pgid should be set. pid=${pid}, pgid=${pgid}`);
         }
 
         if (pid != undefined) {
             if (pid == senderPid) {
                 // TODO: shouldn't be able to kill ancestors either?
-                throw new SyscallError("process cannot kill itself");
+                throw new SysError("process cannot kill itself");
             }
             const proc = this.system.process(pid);
             if (proc != undefined) {
                 this.system.sendSignalToProcess(signal, proc);
             } else {
-                throw new SyscallError("no such process");
+                throw new SysError("no such process");
             }
         } else if (pgid != undefined) {
             this.system.sendSignalToProcessGroup(signal, pgid);
@@ -133,17 +128,25 @@ class Syscalls {
         return proc.write(streamId, text);
     }
 
-    async read(args, pid) {
+    read(args, pid) {
         const {streamId} = validateSyscallArgs(args, ["streamId"]);
         const proc = this.system.process(pid);
         return proc.read(streamId);
     }
 
+    close(args, pid) {
+        const {streamId} = validateSyscallArgs(args, ["streamId"]);
+        const proc = this.system.process(pid);
+        return proc.closeStream(streamId);
+    }
+
+    /*
     readAny(args, pid) {
         const {streamIds} = validateSyscallArgs(args, ["streamIds"]);
         const proc = this.system.process(pid);
         return proc.readAny(streamIds);
     }
+    */
 
     listFiles(args, pid) {
         return Object.keys(this.system.files);
@@ -158,23 +161,33 @@ class Syscalls {
         return this.system.readLinesFromFile(fileName);
     }
 
-    async spawn(args, ppid) {
+    spawn(args, ppid) {
         let {program, args: programArgs, streamIds, pgid} = validateSyscallArgs(args, ["program"], ["args", "streamIds", "pgid"]);
 
-        const parentProc = this.system.processes[ppid];
+        if (programArgs == undefined) {
+            programArgs = [];
+        }
 
-        let streams;
+        const parentProc = this.system.process(ppid);
+
+        let streams = {};
         if (streamIds != undefined) {
-            streams = {};
             for (let i = 0; i < streamIds.length; i++) {
-                const parentStreamId = parseInt(streamIds[i]);
-                const stream = parentProc.streams[parentStreamId];
+                let stream;
+                if (streamIds[i] == "NULL_STREAM") {
+                    stream = new NullStream();
+                } else {
+                    const parentStreamId = parseInt(streamIds[i]);
+                    stream = parentProc.streams[parentStreamId].duplicate();
+                }
                 console.assert(stream != undefined);
                 streams[i] = stream;
             }
         } else {
             // Inherit the parent's streams
-            streams = Object.assign({}, parentProc.streams);
+            for (let i in parentProc.streams) {
+                streams[i] = parentProc.streams[i].duplicate();
+            }
         }
 
         if (pgid != "START_NEW") {
@@ -191,24 +204,19 @@ class Syscalls {
         // Join the parent's session
         const sid = parentProc.sid;
         
-        const childPid = await this.system.spawnProcess({programName: program, args: programArgs, streams, ppid, pgid, sid});
-
-        return childPid;
+        return this.system.spawnProcess({programName: program, args: programArgs, streams, ppid, pgid, sid});
     }
 
     waitForExit(pidToWaitFor, pid) {
-        const proc = this.system.process(pid);
-        const procToWaitFor = this.system.process(pidToWaitFor);
-        if (proc) {
-            console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
-            return proc.waitForOtherToExit(procToWaitFor);
+        if (!Number.isInteger(pidToWaitFor)) {
+            throw new SysError(`invalid syscall arg. Expected int but got: ${JSON.stringify(pidToWaitFor)}`)
         }
-        console.debug("Process doesn't exist / has already exited");
+        return this.system.waitForOtherProcessToExit(pid, pidToWaitFor);
     }
 
     graphics(args, pid) {
         let {title, size} = validateSyscallArgs(args, ["title", "size"]);
-        this.system.windowManager.makeWindowVisible(title, size, pid);
+        this.system.makeWindowVisible(title, size, pid);
     }
 
     sleep(args, pid) {

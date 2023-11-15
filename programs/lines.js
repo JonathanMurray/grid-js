@@ -22,6 +22,10 @@ async function main(args) {
 
     for (let i = 1; i <= last; i++) {
         const line = await readln();
+        if (line == null) {
+            // end of stream
+            break;
+        }
         if (i >= first) {
             await writeln(`${i} ${line}`);
         }

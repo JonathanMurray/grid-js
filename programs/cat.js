@@ -1,7 +1,5 @@
 "use strict";
 
-
-
 async function main(args) {
     if (args.length >= 1) {
         const fileName = args[0];
@@ -14,6 +12,10 @@ async function main(args) {
             }
         }
     } else {
-        await writeln("<missing filename argument>");
+        let line = await readln();
+        while (line != null) {
+            await writeln(line);
+            line = await readln();
+        }
     }
 }

@@ -59,17 +59,36 @@ const stdlib = function() {
         return {clear, printPrompt, setTextStyle, setBackgroundStyle, writeCommand};
     } ();
 
+    const EOT = "\x04";
+
     class BufferedReader {
         constructor() {
             this.buf = "";
+            this.closed = false;
         }
 
         async readLine() {
-            while (!this.buf.includes("\n")) {
+
+            if (this.closed) {
+                throw new Error("can't read from closed stream");
+            }
+
+            while (!this.buf.includes("\n") && !this.buf.includes(EOT)) {
                 const read = await syscall("read", {streamId: 0});
                 this.buf += read;
             }
+
             const newlineIndex = this.buf.indexOf("\n");
+            const eotIndex = this.buf.indexOf(EOT);
+
+            if (eotIndex >= 0 && (eotIndex < newlineIndex || newlineIndex == -1)) {
+                // the end of the stream has been reached
+                this.closed = true;
+                return null;
+            }
+
+            console.assert(newlineIndex >= 0, `eotindex: ${eotIndex}, newlineIndex: ${newlineIndex}`);
+
             const line = this.buf.slice(0, newlineIndex);
             this.buf = this.buf.slice(newlineIndex + 1);
             return line;
@@ -78,7 +97,6 @@ const stdlib = function() {
     
     const readerSingleton = new BufferedReader();
     const readln = () => readerSingleton.readLine();
-
 
     return {createWindow, terminal, write, writeln, readln, log};
 

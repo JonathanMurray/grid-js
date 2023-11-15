@@ -2,7 +2,7 @@
 
 async function main(args) {
 
-    await syscall("handleInterruptSignal");
+    //await syscall("handleInterruptSignal");
 
     await writeln("Let's launch some apps!");
 
@@ -14,7 +14,8 @@ async function main(args) {
     await writeln("Launched: " + pids);
 
     for (let pid of pids) {
-        await syscall("waitForExit", pid);
+        const result = await syscall("waitForExit", pid);
+        await writeln(`${pid}: ${JSON.stringify(result)}`);
     }
 
     await writeln("All apps have stopped running.");

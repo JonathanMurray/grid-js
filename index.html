@@ -30,7 +30,10 @@ window.addEventListener("keydown", function(event) {
     }
 });
 
+let theSystem;
+
 System.init().then((system) => {
+    theSystem = system;
     console.log("System initialised. Setting up window event listeners...");
     window.addEventListener("keydown", function(event) {
         system.handleEvent("keydown", event);

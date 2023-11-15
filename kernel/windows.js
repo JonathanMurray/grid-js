@@ -8,6 +8,7 @@ class WindowManager {
     constructor() {
         this.draggingWindow = null;
         this.maxZIndex = 1;
+        this.visibleWindows = {};
     }
 
     getWindow(pid) {
@@ -71,6 +72,9 @@ class WindowManager {
         window.style.top = top;
     
         this.focusElement(window);
+
+        this.visibleWindows[pid] = window;
+        console.log("Added window. ", this.visibleWindows);
     }
     
     getProcessIframe(pid) {
@@ -81,7 +85,7 @@ class WindowManager {
         return null;
     }
     
-    createWindow(iframe, pid) {
+    createInvisibleWindow(iframe, pid) {
         // Remove the diagonal corner that iframe gets by default
         iframe.setAttribute("frameborder", "0");
 
@@ -120,11 +124,15 @@ class WindowManager {
         });
     
         document.getElementsByTagName("body")[0].appendChild(window);
+
     }
     
     removeWindow(pid) {
         const window = this.getWindow(pid);
+        delete this.visibleWindows[pid];
         window.remove();
+
+        //console.log("Removed window. ", this.visibleWindows);
     }
     
     onMouseMove(event) {

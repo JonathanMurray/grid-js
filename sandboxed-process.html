@@ -20,6 +20,10 @@
             if (event.key == "s" && event.ctrlKey) {
                 event.preventDefault();
             }
+
+            if (event.key == "d" && event.ctrlKey) {
+                event.preventDefault();
+            }
         });
 
         console.debug("Initializing program iframe ...");
@@ -32,6 +36,8 @@
             }
 
             async call(syscall, arg) {
+
+                console.log(this.pid, "syscall ", syscall, arg);
                 
                 if (arg == undefined) {
                     // Syscall implementations that try to destructure args crash otherwise
@@ -123,8 +129,7 @@
                 }
             }
             
-
-            await syscall('exit');
+            await syscall('exit', error);
         }
 
         function setupAndRunProgram(programCode, args) {
