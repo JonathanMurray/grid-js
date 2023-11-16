@@ -3,13 +3,13 @@
 async function main(args) {
     if (args.length >= 1) {
         const fileName = args[0];
-        const lines = await syscall("readFromFile", fileName);
-        if (lines == null) {
+        const streamId = await syscall("openFile", {fileName});
+        const text = await syscall("read", {streamId});
+        console.log("cat read text: '"+ text+ "'");
+        if (text == null) {
             await writeln("<no such file>");
         } else {
-            for (let line of lines) {
-                await writeln(line);
-            }
+            await write(text);
         }
     } else {
         let line = await readln();

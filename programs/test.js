@@ -1,26 +1,13 @@
 "use strict";
 
-async function run() {
-    while (true) {
-        const line = await readln();
-        await writeln("You wrote: " + line);
-    }
-}
-
 async function main(args) {
 
-    await syscall("handleInterruptSignal");
+    const streamId = await syscall("openFile", {fileName: "textfile"});
+    await writeln(`opened file: ${streamId}`);
 
-    try {
-        while (true) {
-            const line = await readln();
-            await writeln("You wrote: " + line);
-        }
-    } catch (error) {
-        if (error.name == "ProcessInterrupted") {
-            await writeln("Interrupted. Shutting down.");
-        } else {
-            throw error;
-        }
-    }
+    let text = await syscall("read", {streamId});
+    await writeln(`Read text: '${text}'`);
+
+    text = await syscall("read", {streamId});
+    await writeln(`Read text: '${text}'`);
 }

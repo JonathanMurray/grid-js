@@ -64,13 +64,13 @@ const stdlib = function() {
     class BufferedReader {
         constructor() {
             this.buf = "";
-            this.closed = false;
+            this.hasReachedEnd = false;
         }
 
         async readLine() {
 
-            if (this.closed) {
-                throw new Error("can't read from closed stream");
+            if (this.hasReachedEnd) {
+                throw new Error("can't read beyond end of stream");
             }
 
             while (!this.buf.includes("\n") && !this.buf.includes(EOT)) {
@@ -83,7 +83,7 @@ const stdlib = function() {
 
             if (eotIndex >= 0 && (eotIndex < newlineIndex || newlineIndex == -1)) {
                 // the end of the stream has been reached
-                this.closed = true;
+                this.hasReachedEnd = true;
                 return null;
             }
 

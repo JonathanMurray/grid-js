@@ -2,6 +2,48 @@
 
 const EOT = "\x04";
 
+class TextFile {
+    constructor(text) {
+        this.text = text;
+    }
+}
+
+class OpenFileDescription {
+    constructor(system, id, file) {
+        this.system = system;
+        this.id = id;
+        this.file = file;
+        this.numStreams = 1;
+        this.charIndex = 0;
+    }
+
+    write(text) {
+        const existing = this.file.text;
+        this.file.text = existing.slice(0, this.charIndex) + text + existing.slice(this.charIndex + text.length);
+        this.charIndex += text.length;
+    }
+
+    read() {
+        const text = this.file.text.slice(this.charIndex);
+        this.charIndex = this.file.text.length;
+        return text;
+    }
+
+    onStreamClose() {
+        this.numStreams --;
+        console.assert(this.numStreams >= 0);
+
+        if (this.numStreams == 0) {
+            delete this.system.openFileDescriptions[this.id];
+        }
+    }
+
+    onStreamDuplicate() {
+        console.assert(this.numStreams > 0); // One must exist to be duplicated
+        this.numStreams ++;
+    }
+}
+
 
 class System {
 
@@ -12,9 +54,15 @@ class System {
         this.processes = {};
 
         this.pseudoTerminals = {};
-        this.files = {};
+     
 
         this.windowManager = new WindowManager();
+
+        // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
+        this.nextOpenFileDescriptionId = 1;
+        this.openFileDescriptions = {};
+
+        this.files = {};
     }
 
     static async init() {
@@ -52,13 +100,13 @@ class System {
             "time", 
         ];
         let files = {
-            "textfile": ["first line", "", "third line"],
-            "empty": ["<script>", "function main() {}"],
-            "log": ["<script>", "async function main(args) { console.log(args); }"],
+            "textfile": new TextFile("hello world"),
+            "empty": new TextFile("<script>\nfunction main() {}\n"),
+            "log": new TextFile("<script>\nasync function main(args) { console.log(args); }\n"),
         };
         for (let program of programs) {
-            const lines = await System.fetchProgram(program);    
-            files[program] = lines;
+            const text = await System.fetchProgram(program);    
+            files[program] = new TextFile(text);
         }
         system.files = files;
 
@@ -71,15 +119,18 @@ class System {
         const response = await fetch("programs/" + programName + ".js", {});
         let code = await response.text();
         code = "<script>\n" + code;
-        return code.split("\n");
+        return code;
     }
 
-    async call(syscall, arg, pid) {
+    async call(syscall, args, pid) {
         if (!(syscall in this.syscalls)) {
-            throw new SysError("no such syscall");
+            throw new SysError(`no such syscall: '${syscall}'`);
         }
+
+        const proc = this.processes[pid];
+        console.assert(proc != undefined);
         
-        return await this.syscalls[syscall](arg, pid);
+        return await this.syscalls[syscall](proc, args);
     }
 
     handleEvent(name, event) {
@@ -154,7 +205,7 @@ class System {
     spawnProcess({programName, args, streams, ppid, pgid, sid}) {
         console.assert(args != undefined);
         if (programName in this.files) {
-            const lines = this.files[programName];
+            const lines = this.files[programName].text.split("\n");
             if (lines[0] == "<script>") {
                 const code = lines.slice(1).join("\n");
                 const pid = this.nextPid ++;
@@ -190,10 +241,10 @@ class System {
         this.windowManager.makeWindowVisible(title, size, pid);
     }
 
-    onProcessExit(exitValue, pid) {
+    onProcessExit(proc, exitValue) {
+        const pid = proc.pid;
         console.assert(pid != undefined);
         console.log(`[${pid}] PROCESS EXIT`)
-        let proc = this.processes[pid];
         if (proc.exitValue == null) {
             proc.onExit(exitValue);
             this.windowManager.removeWindow(pid);
@@ -226,18 +277,31 @@ class System {
         return pty;
     }
 
-    saveLinesToFile(lines, fileName) {
-        this.files[fileName] = lines;
-    }
-
-    readLinesFromFile(fileName) {
-        if (fileName in this.files) {
-            return this.files[fileName];
+    procOpenFile(proc, fileName, createIfNecessary) {
+        let file = this.files[fileName];
+        if (file == undefined) {
+            if (createIfNecessary) {
+                file = new TextFile("");
+                this.files[fileName] = file;
+            } else {
+                throw new SysError("no such file");
+            }
         }
-        return null; 
+
+        const id = this.nextOpenFileDescriptionId ++;
+        const openFileDescription = new OpenFileDescription(this, id, file);
+        this.openFileDescriptions[id] = openFileDescription;
+        const fileStream = new FileStream(openFileDescription);
+
+        const streamId = proc.addStream(fileStream);
+        return streamId;
     }
 
-    
+    procSetFileLength(proc, streamId, length) {
+        const file = proc.streams[streamId].openFileDescription.file;
+        file.text = file.text.slice(0, length);
+    }
+
     sendSignalToProcessGroup(signal, pgid) {
         let foundSome = false;
         // Note: likely quite bad performance below
@@ -267,7 +331,7 @@ class System {
         }
 
         if (lethal) {
-            this.onProcessExit({killedBy: signal}, proc.pid);
+            this.onProcessExit(proc, {killedBy: signal});
         }
     }
 
@@ -353,6 +417,7 @@ class Pipe {
         console.assert(this.numWriters > 0);
         if (this.numReaders == 0) {
             writer("read-end is closed");
+            return;
         }
 
         const text = writer();
@@ -401,14 +466,16 @@ class PipeReader {
         this.isOpen = true;
     }
 
-    requestRead(arg) {
-        return this.pipe.requestRead(arg);
+    requestRead({reader, proc}) {
+        console.assert(this.isOpen);
+        return this.pipe.requestRead({reader, proc});
     }
     
     close() {
-        console.assert(this.isOpen);
-        this.isOpen = false;
-        this.pipe.onReaderClose();
+        if (this.isOpen) {
+            this.isOpen = false;
+            this.pipe.onReaderClose();
+        }
     }
 
     duplicate () {
@@ -425,13 +492,15 @@ class PipeWriter {
     }
 
     requestWrite(writer) {
+        console.assert(this.isOpen);
         return this.pipe.requestWrite(writer);
     }
 
     close() {
-        console.assert(this.isOpen);
-        this.isOpen = false;
-        this.pipe.onWriterClose();
+        if (this.isOpen) {
+            this.isOpen = false;
+            this.pipe.onWriterClose();
+        }
     }
 
     duplicate () {
@@ -441,12 +510,44 @@ class PipeWriter {
     }
 }
 
+class FileStream {
+    constructor(openFileDescription) {
+        this.openFileDescription = openFileDescription;
+        this.isOpen = true;
+    }
+
+    requestWrite(writer) {
+        console.assert(this.isOpen);
+        const text = writer();
+        this.openFileDescription.write(text);
+    }
+    
+    requestRead({reader, proc}) {
+        console.assert(this.isOpen);
+        const text = this.openFileDescription.read();
+        reader({text});
+    }
+
+    close() {
+        if (this.isOpen) {
+            this.isOpen = false;
+            this.openFileDescription.onStreamClose();
+        }
+    }
+
+    duplicate() {
+        console.assert(this.isOpen);
+        this.openFileDescription.onStreamDuplicate();
+        return new FileStream(this.openFileDescription);
+    }
+}
+
 class NullStream {
     requestWrite(writer) {
         writer(); // Whatever was written is discarded
     }
     
-    requestRead(reader) {
+    requestRead({reader, proc}) {
         // Will never read anything
     }
 

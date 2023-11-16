@@ -15,13 +15,20 @@ class Editor {
         this.text.draw();
     }
 
+    async saveToFile() {
+        const streamId = await syscall("openFile", {fileName: this.fileName});
+        const text = this.text.lines.join("\n");
+        await syscall("write", {streamId, text});
+        await syscall("setFileLength", {streamId, length: text.length});
+        await syscall("closeStream", {streamId});
+        await writeln(`Saved to ${this.fileName}`);
+    }
+
     handleEvent(name, event) {
         if (name == "keydown") {
             const key = event.key;
             if (key == "s" && event.ctrlKey) {
-                syscall("saveToFile", {lines: this.text.lines, fileName: this.fileName}).then(() => {
-                    writeln(`Saved to ${this.fileName}`);
-                })
+                this.saveToFile();
             } else if (key == "Backspace") {
                 this.backspace();
             } else if (key == "Enter") {
@@ -136,7 +143,11 @@ async function main(args) {
     const size = [800, 600];
     const canvas = await stdlib.createWindow("Editing: " + fileName, size);
 
-    let lines = await syscall("readFromFile", fileName);
+    const streamId = await syscall("openFile", {fileName, createIfNecessary: true});
+    const text = await syscall("read", {streamId});
+    const lines = text.split("\n");
+    await syscall("closeStream", {streamId});
+
     
     const app = new Editor(canvas, fileName, lines);
 

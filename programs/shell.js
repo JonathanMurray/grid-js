@@ -231,10 +231,10 @@ async function main(args) {
                 // correct pipe behaviour when the child closes their version.
                 // https://man7.org/linux/man-pages/man7/pipe.7.html
                 if (stdin != shellStdin) {
-                    await syscall("close", {streamId: stdin});
+                    await syscall("closeStream", {streamId: stdin});
                 }
                 if (stdout != shellStdout) {
-                    await syscall("close", {streamId: stdout});
+                    await syscall("closeStream", {streamId: stdout});
                 }
 
                 pids.push(pid);
@@ -254,8 +254,6 @@ async function main(args) {
         }
     }
 }
-
-
 
 class ParseError extends Error {
     constructor(message) {
