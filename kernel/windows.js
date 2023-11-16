@@ -9,6 +9,7 @@ class WindowManager {
         this.draggingWindow = null;
         this.maxZIndex = 1;
         this.visibleWindows = {};
+        this.focusedWindow = null;
     }
 
     getWindow(pid) {
@@ -27,13 +28,15 @@ class WindowManager {
         this.focusElement(window);
     }
     
-    focusElement(window) {
-        if (window.style.zIndex < this.maxZIndex) {
-            window.style.zIndex = ++this.maxZIndex;
+    focusElement(element) {
+        if (element.style.zIndex < this.maxZIndex) {
+            element.style.zIndex = ++this.maxZIndex;
         }
     
-        window.getElementsByTagName("iframe")[0].focus();
-        window.classList.add("focused");
+        element.getElementsByTagName("iframe")[0].focus();
+        element.classList.add("focused");
+
+        this.focusedWindow = element;
     }
     
     focusWindow(pid) {
@@ -75,14 +78,6 @@ class WindowManager {
 
         this.visibleWindows[pid] = window;
         console.log("Added window. ", this.visibleWindows);
-    }
-    
-    getProcessIframe(pid) {
-        const window = this.getWindow(pid);
-        if (window) {
-            return window.getElementsByTagName("iframe")[0];
-        }
-        return null;
     }
     
     createInvisibleWindow(iframe, pid) {

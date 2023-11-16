@@ -1,7 +1,7 @@
 
 <script src="grid.js"></script>
 <script src="text-grid.js"></script>
-
+<script src="kernel/iframe-messages.js"></script>
 <script src="stdlib.js"></script>
 
 <script>
@@ -10,7 +10,8 @@
     function init() {
         // Set from message sent from system
         let programName = null;
-        let pid = null;
+        
+        console.debug("Initializing program iframe ...");
 
         window.addEventListener("keydown", function(event) {
             if (event.code == "Tab") {
@@ -26,66 +27,9 @@
             }
         });
 
-        console.debug("Initializing program iframe ...");
-
-        class SyscallTracker {
-            constructor() {
-                this.pid = null; // must be assigned before use
-                this.nextSyscallSequenceNum = 1;
-                this.messageCallbacks = {};
-            }
-
-            async call(syscall, arg) {
-
-                console.log(this.pid, "syscall ", syscall, arg);
-                
-                if (arg == undefined) {
-                    // Syscall implementations that try to destructure args crash otherwise
-                    arg = {};
-                }
-
-                let sequenceNum = this.nextSyscallSequenceNum ++;
-                console.assert(!(sequenceNum in this.messageCallbacks), `message id ${sequenceNum} in ${JSON.stringify(this.messageCallbacks)}`);
-                let callbacks = {};
-                this.messageCallbacks[sequenceNum] = callbacks;
-
-                console.debug("posting syscall...");
-                console.assert(this.pid != null, "pid must have been assigned");
-                parent.postMessage({syscall: {syscall, arg, pid: this.pid, sequenceNum}}, "*");
-                console.debug("posted syscall...");
-
-                const asyncSyscallResult = new Promise((resolve, reject) => {
-                    callbacks.resolve = resolve;
-                    callbacks.reject = reject;
-                });
-                console.debug("created syscall promise...");
-                
-                try {
-                    return await asyncSyscallResult;
-                } catch (e) {
-                    const newError = new Error(e.message);
-                    newError.name = e.name;
-                    newError.cause = e;
-                    throw newError;
-                    //throw {name: e.name, message: e.message, cause: e};
-                }
-            }
-
-            resolve(sequenceNum, result) {
-                console.debug("Received syscall result in iframe: ", result);
-                this.messageCallbacks[sequenceNum].resolve(result);
-                delete this.messageCallbacks[sequenceNum]; // avoid leaking memory
-            }
-
-            reject(sequenceNum, error) {
-                console.debug("Received syscall error in iframe: ", error);
-                this.messageCallbacks[sequenceNum].reject(error);
-                delete this.messageCallbacks[sequenceNum]; // avoid leaking memory
-            }
-        }
-
-      
         async function onProgramCrashed(error) {
+
+            const pid = client.process.pid;
 
             console.warn(`[${pid}] Program crashed: `, error);
             console.warn(`[${pid}] Caused by: `, error.cause);
@@ -132,7 +76,10 @@
             await syscall('exit', error);
         }
 
-        function setupAndRunProgram(programCode, args) {
+        function setupAndRunProgram({code, args, pid}) {
+            console.assert(code != undefined);
+            console.assert(args != undefined);
+            
             const placeholder = document.getElementById("placeholder-script");
             const body = document.getElementsByTagName("body")[0].style.margin = "0px";
             const head = document.getElementsByTagName("head")[0];
@@ -142,7 +89,7 @@
             script.setAttribute("id", "program-script");
             
             let text = placeholder.text;
-            text = text.replace("// PROGRAM_PLACEHOLDER", programCode);
+            text = text.replace("// PROGRAM_PLACEHOLDER", code);
             // Make the chrome debugger output a stacktrace with proper links to the source code
             // See https://stackoverflow.com/a/18621472
             text += `\n//# sourceURL=${programName}`;
@@ -154,40 +101,16 @@
             programWrapper(args);
         }
 
+        
+        // iframe-messages.js
+        let client = new IframeClient(setupAndRunProgram);
+
         window.addEventListener("mousedown", (event) => {
-            parent.postMessage({iframeReceivedFocus: {pid: pid}}, "*");
+            client.demandWindowFocus();
         });
 
-        const syscallTracker = new SyscallTracker();
-        const syscall = (syscall, arg) => syscallTracker.call(syscall, arg); 
 
-        window.addEventListener("message", message => {
-
-            console.debug("Sandboxed program received message:", message.data);
-
-            if ("startProcess" in message.data) {
-                console.assert("programName" in message.data.startProcess);
-                console.assert("code" in message.data.startProcess);
-                console.assert("args" in message.data.startProcess);
-                console.assert("pid" in message.data.startProcess);
-                ({programName, pid} = message.data.startProcess);
-                const {code, args} = message.data.startProcess;
-                syscallTracker.pid = pid;
-                setupAndRunProgram(code, args);
-            } else if ("syscallResult" in message.data) {
-                const sequenceNum = message.data.syscallResult.sequenceNum;
-                if ("success" in message.data.syscallResult) {
-                    const result = message.data.syscallResult.success;
-                    syscallTracker.resolve(sequenceNum, result);
-                } else {
-                    console.assert("error" in message.data.syscallResult);
-                    const error = message.data.syscallResult.error;
-                    syscallTracker.reject(sequenceNum, error);
-                }
-            } else {
-                console.error("Unhandled message in program iframe", message.data);
-            }
-        });
+        const syscall = (syscall, arg) => client.call(syscall, arg); 
 
         return {syscall, onProgramCrashed};
     }

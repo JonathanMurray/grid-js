@@ -47,7 +47,9 @@ class OpenFileDescription {
 
 class System {
 
-    constructor() {
+    constructor(files) {
+        this.files = files;
+
         this.syscalls = new Syscalls(this);
 
         this.nextPid = 1;
@@ -55,6 +57,7 @@ class System {
 
         this.pseudoTerminals = {};
      
+        this.iframeServer = new IframeServer(this);
 
         this.windowManager = new WindowManager();
 
@@ -62,12 +65,20 @@ class System {
         this.nextOpenFileDescriptionId = 1;
         this.openFileDescriptions = {};
 
-        this.files = {};
+        window.addEventListener("mousemove", (event) => {
+            this.windowManager.onMouseMove(event);
+        });
+
+        window.addEventListener("mouseup", (event) => {
+            this.windowManager.onMouseUp(event);
+        });
+
+        window.addEventListener("keydown", (event) => {
+            this.windowManager.onKeyDown(event);
+        });
     }
 
     static async init() {
-
-        const system = new System();
 
         /*
         system.printOutput([
@@ -108,7 +119,8 @@ class System {
             const text = await System.fetchProgram(program);    
             files[program] = new TextFile(text);
         }
-        system.files = files;
+
+        const system = new System(files);
 
         const pid = system.spawnProcess({programName: "terminal", args: [], streams: {}, ppid: null, pgid: "START_NEW", sid: null});
 
@@ -133,56 +145,7 @@ class System {
         return await this.syscalls[syscall](proc, args);
     }
 
-    handleEvent(name, event) {
-        if (name == "keydown") {
-            console.log("system.keydown");
-        } else if (name == "mousemove") {
-            this.windowManager.onMouseMove(event);
-        } else if (name == "mouseup") {
-            this.windowManager.onMouseUp(event);
-        } else if (name == "message") {
-            if ("syscall" in event.data) {
-                // Sandboxed programs send us syscalls from iframe
-                this.handleSyscallMessage(event);
-            } else {
-                console.assert("iframeReceivedFocus" in event.data);
-                const pid = event.data.iframeReceivedFocus.pid;
-                this.windowManager.focusWindow(pid);
-            }
-        } else {
-            console.warn("Unhandled system event", name, event);
-        }
-    }
 
-    handleSyscallMessage(event) {
-        const {syscall, arg, pid, sequenceNum} = event.data.syscall;
-
-        //console.log(`[${pid}] ${syscall}(${JSON.stringify(arg)}) ...`);
-
-        this.call(syscall, arg, pid).then((result) => {
-            console.log(`[${pid}] ${syscall}(${JSON.stringify(arg)}) --> ${JSON.stringify(result)}`);
-            const iframe = this.windowManager.getProcessIframe(pid);
-            if (iframe) {
-                iframe.contentWindow.postMessage({syscallResult: {success: result, sequenceNum}}, "*");
-                console.debug("Sent syscall result to program iframe");
-            } else {
-                console.debug("Cannot send syscall to process. It has no window. It must have shut down itself already.");
-            }
-        }).catch((error) => {
-            if (error instanceof SysError || error.name == "ProcessInterrupted" || error.name == "SysError") {
-                console.warn(`[${pid}] ${syscall}(${JSON.stringify(arg)}) --> `, error);
-            } else {
-                console.error(`[${pid}] ${syscall}(${JSON.stringify(arg)}) --> `, error);
-            }
-            const iframe = this.windowManager.getProcessIframe(pid);
-            if (iframe) {
-                iframe.contentWindow.postMessage({syscallResult: {error, sequenceNum}}, "*");
-                console.debug("Sent syscall error to program iframe");
-            } else {
-                console.debug("Cannot send syscall error to process. It has no window. It must have shut down itself already.");
-            }
-        });
-    }
 
     waitForOtherProcessToExit(pid, pidToWaitFor) {
         const proc = this.process(pid);
@@ -223,9 +186,9 @@ class System {
 
                 const iframe = document.createElement("iframe");
                 iframe.sandbox = "allow-scripts";
-                iframe.onload = () => {
-                    iframe.contentWindow.postMessage({startProcess: {programName, code, args, pid}}, "*");
-                }
+                iframe.onload = (() => {
+                    this.iframeServer.initializeNewIframe(iframe, programName, code, args, pid);
+                }).bind(this);
                 iframe.src = "sandboxed-process.html";
         
                 this.windowManager.createInvisibleWindow(iframe, pid);
@@ -426,14 +389,6 @@ class Pipe {
     }
 
     handleWaitingReaders() {
-
-        /*
-        if (!this.isOpenForRead) {
-            for (let {reader, proc} of this.waitingReaders) {
-                reader({error: "read-end is closed"});
-            }
-        }
-        */
 
         if (this.buffer.length > 0) {
             if (this.waitingReaders.length > 0) {

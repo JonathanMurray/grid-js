@@ -70,7 +70,7 @@ const stdlib = function() {
         async readLine() {
 
             if (this.hasReachedEnd) {
-                throw new Error("can't read beyond end of stream");
+                throw new SysError("can't read beyond end of stream");
             }
 
             while (!this.buf.includes("\n") && !this.buf.includes(EOT)) {
