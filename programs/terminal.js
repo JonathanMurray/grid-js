@@ -128,7 +128,7 @@ class Terminal {
             this.text.cursorChar ++;
         }
 
-        this.inputIndex = Math.min(this.inputIndex + 1, this.inputBuffer.length - 1);
+        this.inputIndex = Math.min(this.inputIndex + 1, this.inputBuffer.length);
     }
 
     moveLeft() {
