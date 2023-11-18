@@ -12,6 +12,8 @@ class WindowManager {
         this.windows = {};
         this.focusedWindow = null;
 
+        this.isEasyDragEnabled = false;
+
         window.addEventListener("mousemove", (event) => {
             if (this.draggingWindow != null) {
                 const {window, offset} = this.draggingWindow;
@@ -21,17 +23,17 @@ class WindowManager {
             }
         });
 
+        window.addEventListener("mousedown", (event) => {
+            // Mouse clicked on the desktop environment outside any of the windows
+            this.unfocusWindow();
+        });
+
         window.addEventListener("mouseup", (event) => {
             if (this.draggingWindow != null) {
                 const {window} = this.draggingWindow;
                 this.focusWindow(window);
                 this.draggingWindow = null;
             }
-        });
-
-        window.addEventListener("mousedown", (event) => {
-            // Mouse clicked on the desktop environment outside any of the windows
-            this.unfocusWindow();
         });
 
         window.addEventListener("keydown", (event) => {
@@ -46,15 +48,34 @@ class WindowManager {
                 event.preventDefault();
             }
         
-            if (event.key == "Alt") {
+            if (event.key == "Control") {
                 // default = Chrome menu takes focus
                 event.preventDefault();
+                
+                this.enableEasyDrag();
             }
 
             if (this.focusedWindow != null) {
                 this.sendInputToProcess(this.focusedWindow, {name: "keydown", event: {key: event.key, ctrlKey: event.ctrlKey}});
             }
         });
+
+        window.addEventListener("keyup", (event) => {
+            console.log(event);
+            if (event.key == "Control") {
+                this.disableEasyDrag();
+            }
+        })
+    }
+
+    enableEasyDrag() {
+        document.querySelector("body").classList.add("alt-cursor");
+        this.isEasyDragEnabled = true;
+    }
+
+    disableEasyDrag() {
+        document.querySelector("body").classList.remove("alt-cursor");
+        this.isEasyDragEnabled = false;
     }
 
     sendInputToProcess(window, userInput) {
@@ -157,7 +178,13 @@ class WindowManager {
         });
 
         winElement.addEventListener("mousedown", (event) => {
+            if (this.isEasyDragEnabled) {
+                const left = parseInt(winElement.style.left.replace("px", "")) || winElement.getBoundingClientRect().x;
+                const top = parseInt(winElement.style.top.replace("px", "")) || winElement.getBoundingClientRect().y;
+                this.draggingWindow = {window: win, offset: [event.x - left, event.y - top]};
+            }
             this.focusWindow(win);
+
             // Prevent window manager from taking focus from the window
             event.stopPropagation();
         });

@@ -11,3 +11,7 @@
 .program-window.focused .program-window-header {
     background-color: rgb(55, 202, 239);
 }
+
+.alt-cursor .program-window {
+    cursor:move;
+}
