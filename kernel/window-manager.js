@@ -241,42 +241,59 @@ class WindowManager {
         document.querySelector("body").classList.add(className);
         this.hoveredResize = {window, anchor};
     }
-    
-    createWindow(title, size, proc, resizable) {
-        
+
+    renderTemplate(template, args) {
+        const regex = /{{([a-z]+)}}/;
+        for (let i = 0; i < 100; i ++) {
+            const match = template.match(regex);
+            if (match == null) {
+                console.log("RENDERED: ", template);
+                return template;
+            }
+
+            template = template.replace(match[0], args[match[1]]);
+        }
+        console.error("Didn't render the entire template: ", template);
+    }
+
+    async fetchAndRenderTemplate(url, args) {
+        const response = await fetch(url);
+        const template = await response.text();
+        const rendered = this.renderTemplate(template, args)
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(rendered, 'text/html');
+        return doc;
+    }
+
+    positionNewWindow(width, height) {
+        const frontMost = this.getFrontMostWindow();
+        if (frontMost && frontMost.element.style && frontMost.element.style.left) {
+            const offset = 25;
+            return [parseInt(frontMost.element.style.left.replace("px", "")) + offset,
+                    parseInt(frontMost.element.style.top.replace("px", "")) + offset];
+        } else {
+            const availableScreenSpace = document.getElementsByTagName("body")[0].getBoundingClientRect()
+            return [availableScreenSpace.width / 2 - width / 2,
+                    availableScreenSpace.height / 2 - height / 2];
+        }
+    }
+
+    async createWindow(title, [width, height], proc, resizable) {
         const pid = proc.pid;
-        const worker = proc.worker;
-        
-        
+        title = `[${pid}] ${title || "Untitled"}`
 
-        const header = document.createElement("div");
-        header.classList.add(CLASS_HEADER);
-        header.style = "border-bottom: 2px solid lightgray; font-family: monospace; font-weight: bold; font-size: 18px; height: 25px;";
-        
-        const winElement = document.createElement("div");
-        const win = {element: winElement, worker}
-        winElement.style = "display: none; position: absolute; background: white; user-select: none; border: 2px solid lightgray;";
-        winElement.id = ID_WINDOW_PREFIX + pid;
-        winElement.classList.add(CLASS_WINDOW);
+        const doc = await this.fetchAndRenderTemplate("/kernel/window-template.html", {pid, title, width, height});
 
-        const canvasWrapper = document.createElement("div");
-        canvasWrapper.classList.add("canvas-wrapper");
-        const canvas = document.createElement("canvas");
+        const winElement = doc.querySelector('.program-window');
+        const win = {element: winElement, worker: proc.worker}
 
-        canvas.width = size[0];
-        canvas.height = size[1];
-
-        const styleSize = [`${size[0] / CANVAS_SCALE}px`, `${size[1] / CANVAS_SCALE}px`];
+        const canvasWrapper = winElement.querySelector(".canvas-wrapper");
+        const canvas = winElement.querySelector("canvas");
+        const styleSize = [`${width / CANVAS_SCALE}px`, `${height / CANVAS_SCALE}px`];
         canvasWrapper.style.width = styleSize[0];
         canvasWrapper.style.height = styleSize[1];
         canvas.style.width = styleSize[0];
         canvas.style.height = styleSize[1];
-    
-        winElement.appendChild(header);
-        winElement.appendChild(canvasWrapper);
-        canvasWrapper.appendChild(canvas);
-
-        const offscreenCanvas = canvas.transferControlToOffscreen();
         
         winElement.addEventListener("mousedown", (event) => {
             const left = winElement.getBoundingClientRect().x;
@@ -338,7 +355,7 @@ class WindowManager {
             }
         });
 
-    
+        const header = winElement.querySelector(".program-window-header");
         header.addEventListener("mousedown", (event) => {
             if (this.hoveredResize == null) {
                 const left = parseInt(winElement.style.left.replace("px", "")) || winElement.getBoundingClientRect().x;
@@ -360,38 +377,20 @@ class WindowManager {
             this.sendInputToProcess(win, {name: "click", event});
         });
     
-    
-        document.getElementsByTagName("body")[0].appendChild(winElement);
+        document.querySelector("body").appendChild(winElement);
 
-        winElement.style.display = "block";
-        title = `[${pid}] ${title || "Untitled"}`
-        winElement.getElementsByClassName(CLASS_HEADER)[0].innerHTML = title;
-    
-        let left;
-        let top;
-    
-        const frontMostWindow = this.getFrontMostWindow();
-        
-        if (frontMostWindow && frontMostWindow.element.style && frontMostWindow.element.style.left) {
-            const offset = 25;
-            left = parseInt(frontMostWindow.element.style.left.replace("px", "")) + offset;
-            top = parseInt(frontMostWindow.element.style.top.replace("px", "")) + offset;
-        } else {
-            const availableScreenSpace = document.getElementsByTagName("body")[0].getBoundingClientRect()
-            left = availableScreenSpace.width / 2 - winElement.getBoundingClientRect().width / 2;
-            top = availableScreenSpace.height / 2 - winElement.getBoundingClientRect().height / 2;
-        }
-    
-        winElement.style.left = left;
-        winElement.style.top = top;
+        const rect = winElement.getBoundingClientRect();
+        const position = this.positionNewWindow(rect.width, rect.height);
+        winElement.style.left = position[0];
+        winElement.style.top = position[1];
     
         this.focusWindow(win);
 
         this.windows[pid] = win;
         console.log("Added window. ", this.windows);
 
+        const offscreenCanvas = canvas.transferControlToOffscreen();
         return offscreenCanvas;
-
     }
     
     removeWindowIfExists(pid) {

@@ -1,21 +1,29 @@
 .program-window {
-    outline: none
+    outline: none;
+    display: block; 
+    position: absolute; 
+    background: white; 
+    user-select: none; 
+    border: 2px solid lightgray;
 }
 .program-window.focused {
     outline: solid rgb(64, 109, 207) 1px;
 }
 
-.program-window .program-window-header {
-    background-color: rgb(240, 240, 240);
-}
-.program-window.focused .program-window-header {
-    background-color: rgb(55, 202, 239);
-}
-
 .program-window-header {
+    background-color: rgb(240, 240, 240);
+    border-bottom: 2px solid lightgray;
+    font-family: monospace; 
+    font-weight: bold; 
+    font-size: 18px; 
+    height: 25px;
+
     /* Header shouldn't prevent window resize, and its contents shouldn't "spill out" visibly */
     text-wrap: nowrap;
     overflow: hidden;
+}
+.program-window.focused .program-window-header {
+    background-color: rgb(55, 202, 239);
 }
 
 .canvas-wrapper {
