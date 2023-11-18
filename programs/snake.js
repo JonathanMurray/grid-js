@@ -22,18 +22,17 @@ class Snake {
         grid.lines.push([grid.numColumns, Snake.MARGIN_TOP, grid.numColumns, grid.numRows]);
         grid.centerText = false;
 
-        this.startGame();
+        this.resetGameState();
         
         this.previousTimestamp;
         this.timeUntilNextFrame = Snake.FRAME_DURATION;
         
         const self = this;
-        window.requestAnimationFrame(timestamp => self.step(timestamp));
 
         writeln("Use WASD or arrow keys for movement.");
     }
 
-    startGame() {
+    resetGameState() {
         this.gameOver = false;
         this.score = 0;
         this.snake = [[5, 5], [6, 5]];
@@ -73,7 +72,8 @@ class Snake {
                 }
             }  else if (key == " ") {
                 if (this.gameOver) {
-                    this.startGame();
+                    this.resetGameState();
+                    this.run();
                 }
             } else {
                 console.log(key);
@@ -87,19 +87,11 @@ class Snake {
         }
     }
 
-    step(timestamp) {
-        if (this.previousTimestamp != undefined) {
-            if (!this.gameOver) {
-                const elapsed = timestamp - this.previousTimestamp;
-                this.timeUntilNextFrame -= elapsed;
-                if (this.timeUntilNextFrame <= 0) {
-                    this.runOneFrame();
-                    this.timeUntilNextFrame += Snake.FRAME_DURATION;
-                }
-            }
+    async run() {
+        while (!this.gameOver) {
+            this.runOneFrame();
+            await syscall("sleep", {millis: Snake.FRAME_DURATION});
         }
-        this.previousTimestamp = timestamp;
-        window.requestAnimationFrame(timestamp => this.step(timestamp)); 
     }
 
     updateHeaderText() {
@@ -192,16 +184,18 @@ async function main(args) {
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const canvas = await stdlib.createWindow("Snake", [324, 324]);
-    const snake = new Snake(canvas);
+    const window = await stdlib.createWindow("Snake", [324, 324]);
+    const snake = new Snake(window.canvas);
 
-    window.addEventListener("keydown", function(event) {
+    window.onkeydown = (event) => {
         if (event.ctrlKey && event.key == "c") { 
             writeln("Snake shutting down").finally(resolvePromise);
         } else {
             snake.handleEvent("keydown", event);
         }
-    });
+    };
+
+    snake.run();
 
     return programDonePromise;
 }

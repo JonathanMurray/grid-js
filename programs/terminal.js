@@ -153,9 +153,10 @@ class Terminal {
 
 }
 
+
 async function main(args) {
 
-    const canvas = await stdlib.createWindow("Terminal", [700, 400]);
+    const window = await stdlib.createWindow("Terminal", [700, 400]);
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
@@ -163,7 +164,7 @@ async function main(args) {
     const {masterReaderId: terminalPtyReader, masterWriterId: terminalPtyWriter, slaveReaderId: shellReader, slaveWriterId: shellWriter} = 
         await syscall("createPseudoTerminal");
 
-    const terminal = new Terminal(canvas, terminalPtyWriter);
+    const terminal = new Terminal(window.canvas, terminalPtyWriter);
     
     let shellPid;
 
@@ -176,6 +177,19 @@ async function main(args) {
         const shellPgid = shellPid; // The shell is process group leader
         await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: shellPgid});
 
+        window.onkeydown = (event) => {
+            if (event.ctrlKey && event.key == "c") { 
+                const pgid = shellPid; // The shell is process group leader
+                syscall("getForegroundProcessGroupOfPseudoTerminal").then((pgid) => {
+                    syscall("sendSignal", {signal: "interrupt", pgid});
+                })
+            } 
+
+            terminal.handleEvent("keydown", event);
+        };
+
+        // TODO handle key events
+        /*
         window.addEventListener("keydown", function(event) {
             if (event.ctrlKey && event.key == "c") { 
                 const pgid = shellPid; // The shell is process group leader
@@ -186,18 +200,18 @@ async function main(args) {
 
             terminal.handleEvent("keydown", event);
         });
+        */
 
         while (true) {
-            const text = await syscall("read", {streamId: terminalPtyReader});
+            let text = await syscall("read", {streamId: terminalPtyReader});
 
-            const escapeIndex = text.indexOf("\x1B");
-            if (escapeIndex >= 0) {
+            let escapeIndex = text.indexOf("\x1B");
+            while (escapeIndex >= 0) {
                 const before = text.slice(0, escapeIndex);
                 terminal.printOutput(before);
                 
                 const commandLen = text.slice(escapeIndex + 1, escapeIndex + 2).charCodeAt(0);
                 let command = text.slice(escapeIndex + 2, escapeIndex + 2 + commandLen);
-
                 command = JSON.parse(command);
                 if ("setTextStyle" in command) {
                     terminal.setTextStyle(command.setTextStyle);
@@ -211,11 +225,11 @@ async function main(args) {
                     console.error("Unhandled terminal command: ", command);
                 }
 
-                const after = text.slice(escapeIndex + 2 + commandLen);
-                terminal.printOutput(after);
-            } else {
-                terminal.printOutput(text);
-            }
+                text = text.slice(escapeIndex + 2 + commandLen);
+                escapeIndex = text.indexOf("\x1B");
+            } 
+           
+            terminal.printOutput(text);
         }
     } catch (error) {
 
@@ -236,4 +250,3 @@ async function main(args) {
     }
 
 }
-

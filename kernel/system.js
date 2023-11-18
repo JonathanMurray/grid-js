@@ -57,25 +57,11 @@ class System {
 
         this.pseudoTerminals = {};
      
-        this.iframeServer = new IframeServer(this);
-
         this.windowManager = new WindowManager();
 
         // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
         this.nextOpenFileDescriptionId = 1;
         this.openFileDescriptions = {};
-
-        window.addEventListener("mousemove", (event) => {
-            this.windowManager.onMouseMove(event);
-        });
-
-        window.addEventListener("mouseup", (event) => {
-            this.windowManager.onMouseUp(event);
-        });
-
-        window.addEventListener("keydown", (event) => {
-            this.windowManager.onKeyDown(event);
-        });
     }
 
     static async init() {
@@ -123,6 +109,7 @@ class System {
         const system = new System(files);
 
         const pid = system.spawnProcess({programName: "terminal", args: [], streams: {}, ppid: null, pgid: "START_NEW", sid: null});
+        //const pid = system.spawnProcess({programName: "sudoku", args: [], streams: {1: new NullStream()}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }
@@ -141,6 +128,11 @@ class System {
 
         const proc = this.processes[pid];
         console.assert(proc != undefined);
+
+        if (args == undefined) {
+            // Syscall implementations that try to destructure args crash otherwise
+            args = {};
+        }
         
         return await this.syscalls[syscall](proc, args);
     }
@@ -164,6 +156,40 @@ class System {
             return exitValue;
         });
     }
+    
+    handleMessageFromWorker(message) {
+        if ("syscall" in message.data) {
+            // Sandboxed programs send us syscalls from iframe
+            this.handleSyscallMessage(message);
+        } else {
+            console.error("Unhandled message from worker: ", message);
+        }
+    }
+
+    handleSyscallMessage(message) {
+        const {syscall, arg, pid, sequenceNum} = message.data.syscall;
+
+        console.log(pid, `${syscall}(${JSON.stringify(arg)}) ...`);
+        this.call(syscall, arg, pid).then((result) => {
+            if (pid in this.processes) {
+                console.log(pid, `${syscall}(${JSON.stringify(arg)}) --> ${JSON.stringify(result)}`);
+                let transfer = [];
+                if (result instanceof OffscreenCanvas) {
+                    transfer.push(result);
+                }
+                this.processes[pid].worker.postMessage({syscallResult: {success: result, sequenceNum}}, transfer);
+            }
+        }).catch((error) => {
+            if (pid in this.processes) {
+                if (error instanceof SysError || error.name == "ProcessInterrupted" || error.name == "SysError") {
+                    console.warn(pid, `${syscall}(${JSON.stringify(arg)}) --> `, error);
+                } else {
+                    console.error(pid, `${syscall}(${JSON.stringify(arg)}) --> `, error);
+                }
+                this.processes[pid].worker.postMessage({syscallResult: {error, sequenceNum}});
+            }
+        });
+    }
 
     spawnProcess({programName, args, streams, ppid, pgid, sid}) {
         console.assert(args != undefined);
@@ -179,19 +205,15 @@ class System {
                     sid = pid;  // The new process becomes leader of a new session
                 }
 
-                const proc = new Process(code, programName, args, pid, streams, ppid, pgid, sid);
+                const worker = new Worker("kernel/process-worker.js", {name: `[${pid}] ${programName}` });
+                const proc = new Process(worker, code, programName, args, pid, streams, ppid, pgid, sid);
                 this.processes[pid] = proc;
 
                 console.log(`[${pid}] NEW PROCESS. parent=${ppid}, group=${pgid}, session=${sid}`)
 
-                const iframe = document.createElement("iframe");
-                iframe.sandbox = "allow-scripts";
-                iframe.onload = (() => {
-                    this.iframeServer.initializeNewIframe(iframe, programName, code, args, pid);
-                }).bind(this);
-                iframe.src = "sandboxed-process.html";
-        
-                this.windowManager.createInvisibleWindow(iframe, pid);
+                
+                worker.postMessage({startProcess: {programName, code, args, pid}});
+                worker.onmessage = (msg) => this.handleMessageFromWorker(msg);
 
                 return pid;
             }
@@ -200,8 +222,8 @@ class System {
         throw new SysError("no such program file: " + programName);
     }
 
-    makeWindowVisible(title, size, pid) {
-        this.windowManager.makeWindowVisible(title, size, pid);
+    createWindow(title, size, proc) {
+        return this.windowManager.createWindow(title, size, proc);
     }
 
     onProcessExit(proc, exitValue) {
@@ -210,7 +232,7 @@ class System {
         console.log(`[${pid}] PROCESS EXIT`)
         if (proc.exitValue == null) {
             proc.onExit(exitValue);
-            this.windowManager.removeWindow(pid);
+            this.windowManager.removeWindowIfExists(pid);
             
             if (proc.pid == proc.sid && proc.sid in this.pseudoTerminals) {
                 console.log(`[${proc.pid}] Session leader controlling PTTY dies. Sending HUP to foreground process group.`)
@@ -425,6 +447,10 @@ class PipeReader {
         console.assert(this.isOpen);
         return this.pipe.requestRead({reader, proc});
     }
+
+    requestWrite() {
+        throw new SysError("stream is not writable");
+    }
     
     close() {
         if (this.isOpen) {
@@ -449,6 +475,10 @@ class PipeWriter {
     requestWrite(writer) {
         console.assert(this.isOpen);
         return this.pipe.requestWrite(writer);
+    }
+
+    requestRead() {
+        throw new SysError("stream is not readable");
     }
 
     close() {
@@ -502,7 +532,7 @@ class NullStream {
         writer(); // Whatever was written is discarded
     }
     
-    requestRead({reader, proc}) {
+    requestRead() {
         // Will never read anything
     }
 

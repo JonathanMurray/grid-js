@@ -141,7 +141,7 @@ async function main(args) {
     }
 
     const size = [800, 600];
-    const canvas = await stdlib.createWindow("Editing: " + fileName, size);
+    const window = await stdlib.createWindow("Editing: " + fileName, size);
 
     const streamId = await syscall("openFile", {fileName, createIfNecessary: true});
     const text = await syscall("read", {streamId});
@@ -149,15 +149,15 @@ async function main(args) {
     await syscall("closeStream", {streamId});
 
     
-    const app = new Editor(canvas, fileName, lines);
+    const app = new Editor(window.canvas, fileName, lines);
 
-    window.addEventListener("keydown", function(event) {
+    window.onkeydown = (event) => {
         if (event.ctrlKey && event.key == "c") { 
             writeln("Editor shutting down").finally(resolvePromise);
         } else {
             app.handleEvent("keydown", event);
         }
-    });
+    };
 
     return programDonePromise;
 }

@@ -20,22 +20,12 @@ class Animation {
         this.done = false;
 
         const self = this;
-        window.requestAnimationFrame(timestamp => self.step(timestamp));
     }
 
-    step(timestamp) {
-        if (this.previousTimestamp != undefined) {
-            const elapsed = timestamp - this.previousTimestamp;
-            this.timeUntilNextFrame -= elapsed;
-            while (this.timeUntilNextFrame <= 0 && !this.done) {
-                this.runOneFrame();
-                this.timeUntilNextFrame += Animation.FRAME_DURATION;
-            }
-        }
-        this.previousTimestamp = timestamp;
-
-        if (!this.done) {
-            window.requestAnimationFrame(timestamp => this.step(timestamp)); 
+    async run() {
+        while (!this.done) {
+            this.runOneFrame();
+            await syscall("sleep", {millis: Animation.FRAME_DURATION});
         }
     }
 
@@ -63,15 +53,17 @@ async function main(args) {
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const canvas = await stdlib.createWindow("Animation", [300, 300]);
+    const window = await stdlib.createWindow("Animation", [300, 300]);
     
-    const app = new Animation(canvas);
+    const app = new Animation(window.canvas);
 
-    window.addEventListener("keydown", function(event) {
+    app.run();
+
+    window.onkeydown = (event) => {
         if (event.ctrlKey && event.key == "c") { 
             writeln("Animation shutting down").finally(resolvePromise);
         }
-    });
+    };
 
     return programDonePromise;
 }

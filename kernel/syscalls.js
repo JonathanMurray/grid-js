@@ -1,5 +1,9 @@
 
 function validateSyscallArgs(args, required, optional=[]) {
+    if (typeof args != "object") {
+        throw new SysError(`unexpected syscall argument: '${args}'. allowed=${required.concat(optional)}`)
+    }
+
     for (let requiredArg of required) {
         if (!(requiredArg in args)) {
             throw new SysError(`missing syscall argument: '${requiredArg}'. args=${JSON.stringify(args)}`)
@@ -205,7 +209,7 @@ class Syscalls {
 
     graphics(proc, args) {
         let {title, size} = validateSyscallArgs(args, ["title", "size"]);
-        this.system.makeWindowVisible(title, size, proc.pid);
+        return this.system.createWindow(title, size, proc);
     }
 
     sleep(proc, args) {

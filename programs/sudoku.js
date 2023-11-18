@@ -49,9 +49,9 @@ class Sudoku {
 
     handleEvent(name, event) {
         if (name == "mousemove") {
-            this.setMouseCell(this.grid.pixelToCell(event.offsetX, event.offsetY));
+            this.setMouseCell(this.grid.pixelToCell(event.x, event.y));
         } else if (name == "click") {
-            const cell = this.grid.pixelToCell(event.offsetX, event.offsetY);
+            const cell = this.grid.pixelToCell(event.x, event.y);
             if (cell !== null) {
                 const [col, row] = cell;
                 if (this.startingNumber(col, row) == null) {
@@ -232,30 +232,28 @@ async function main(args) {
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const canvas = await stdlib.createWindow("Sudoku", [300, 300]);
-    const app = new Sudoku(canvas);
+    const window = await stdlib.createWindow("Sudoku", [300, 300]);
+    const app = new Sudoku(window.canvas);
 
-    window.addEventListener("keydown", (event) => {
+    window.onkeydown = (event) => {
         if (event.ctrlKey && event.key == "c") { 
             writeln("Sudoku shutting down").finally(resolvePromise);
         } else {
             app.handleEvent("keydown", event);
         }
-    });
+    };
 
-    window.addEventListener("click", (event) => {
+    window.onclick = (event) => {
         app.handleEvent("click", event);
-    });
-
-    window.addEventListener("mousemove", (event) => {
+    };
+    
+    window.onmousemove = (event) => {
         app.handleEvent("mousemove", event);
-    });
+    };
 
-    window.addEventListener("mouseout", (event) => {
+    window.onmouseout = (event) => {
         app.handleEvent("mouseout", event);
-    });
-
-
+    };
 
     return programDonePromise;
 }

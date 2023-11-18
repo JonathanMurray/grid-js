@@ -6,8 +6,8 @@ class Plot {
         this.canvas = canvas;
         
         const ctx = canvas.getContext("2d");
-        const scale = window.devicePixelRatio;
-        ctx.scale(scale, scale);
+        //const scale = window.devicePixelRatio;
+        //ctx.scale(scale, scale);
 
         this.origin = [canvas.width / 2, canvas.height / 2];
 
@@ -77,15 +77,15 @@ async function main(args) {
         title += ": " + func;
     }
 
-    const canvas = await stdlib.createWindow(title, [300, 300]);
+    const window = await stdlib.createWindow(title, [300, 300]);
     
-    const app = new Plot(canvas, func);
+    const app = new Plot(window.canvas, func);
 
-    window.addEventListener("keydown", function(event) {
+    window.onkeydown = function(event) {
         if (event.ctrlKey && event.key == "c") { 
             writeln("Plotter shutting down").finally(resolvePromise);
         }
-    });
+    };
 
     return programDonePromise;
 }

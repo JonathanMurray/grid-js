@@ -1,50 +1,20 @@
 <html>
 <head>
-    <style>
-        .program-window {
-            outline: none
-        }
-        .program-window.focused {
-            outline: solid rgb(209, 19, 209) 1px;
-        }
-        .with-alt-cursor {
-            cursor:move;
-        }
-    </style>
+    <link rel="stylesheet" href="kernel/style.css" type="text/css">
 </head>
-<body>
 
+<body>
 </body>
 
-<script src="kernel/windows.js"></script>
-<script src="kernel/iframe-messages.js"></script>
+<script src="kernel/window-manager.js"></script>
 <script src="kernel/system.js"></script>
 <script src="kernel/process.js"></script>
 <script src="kernel/syscalls.js"></script>
 
 <script>
 
-window.addEventListener("keydown", function(event) {
-    if (event.code == "Tab") {
-        // default = focus is moved
-        event.preventDefault();
-    }
-
-    if (event.key == "s" && event.ctrlKey) {
-        // default = save webpage
-        event.preventDefault();
-    }
-
-    if (event.key == "Alt") {
-        // default = Chrome menu takes focus
-        event.preventDefault();
-    }
-});
-
-let theSystem;
-
 System.init().then((system) => {
-    theSystem = system;
+    window.theSystem = system;
 });
 
 </script>

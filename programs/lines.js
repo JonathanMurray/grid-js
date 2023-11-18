@@ -10,14 +10,13 @@ async function main(args) {
             first = parseInt(lineArgs[0]);
             last = parseInt(lineArgs[lineArgs.length - 1]);
         }
+        if (!(first && last)) {
+            await writeln("<invalid line numbers arg>");
+            return;
+        }
     } else {
-        await writeln("<missing line numbers arg>");
-        return;
-    }
-
-    if (!(first && last)) {
-        await writeln("<invalid line numbers arg>");
-        return;
+        first = 1;
+        last = Number.MAX_SAFE_INTEGER;
     }
 
     for (let i = 1; i <= last; i++) {
@@ -27,7 +26,7 @@ async function main(args) {
             break;
         }
         if (i >= first) {
-            await writeln(`${i} ${line}`);
+            await writeln(`${i.toString().padEnd(2)} ${line}`);
         }
     }
 }

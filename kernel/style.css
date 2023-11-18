@@ -1,0 +1,13 @@
+.program-window {
+    outline: none
+}
+.program-window.focused {
+    outline: solid rgb(64, 109, 207) 1px;
+}
+
+.program-window .program-window-header {
+    background-color: rgb(240, 240, 240);
+}
+.program-window.focused .program-window-header {
+    background-color: rgb(55, 202, 239);
+}

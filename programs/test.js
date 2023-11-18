@@ -10,4 +10,5 @@ async function main(args) {
 
     text = await syscall("read", {streamId});
     await writeln(`Read text: '${text}'`);
+    
 }

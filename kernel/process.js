@@ -1,11 +1,12 @@
 
 class Process {
 
-    constructor(code, programName, args, pid, streams, ppid, pgid, sid) {
+    constructor(worker, code, programName, args, pid, streams, ppid, pgid, sid) {
         console.assert(streams != undefined);
         console.assert(Number.isInteger(pid));
         console.assert(Number.isInteger(pgid));
         console.assert(Number.isInteger(sid));
+        this.worker = worker;
         this.code = code;
         this.pid = pid; // Process ID
         this.ppid = ppid; // Parent process ID
@@ -77,7 +78,9 @@ class Process {
     
     write(streamId, text) {
         const outputStream = this.streams[streamId];
-        console.assert(outputStream != undefined);
+        if (outputStream == undefined) {
+            throw new SysError("no such stream");
+        }
         const {promise, promiseId} = this.promise();
         const self = this;
         outputStream.requestWrite((error) => {
@@ -157,6 +160,8 @@ class Process {
         for (let streamId in this.streams) {
             this.streams[streamId].close();
         }
+
+        this.worker.terminate();
 
         this.handleExitWaiters();
     }

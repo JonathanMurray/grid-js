@@ -1,7 +1,7 @@
 "use strict";
 
 async function main(args) {
-    for (word of args) {
+    for (let word of args) {
         await writeln(word);
     }
 }
