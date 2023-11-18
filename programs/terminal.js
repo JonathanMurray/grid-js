@@ -16,6 +16,10 @@ class Terminal {
         this.text.setTextStyle("blue");
     }
 
+    resize(w, h) {
+        this.text.resize(w, h);
+    }
+
     setTextStyle(style) {
         this.text.setTextStyle(style);
     }
@@ -156,7 +160,7 @@ class Terminal {
 
 async function main(args) {
 
-    const window = await stdlib.createWindow("Terminal", [700, 400]);
+    const window = await stdlib.createWindow("Terminal", [500, 400]);
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
@@ -188,20 +192,10 @@ async function main(args) {
             terminal.handleEvent("keydown", event);
         };
 
-        // TODO handle key events
-        /*
-        window.addEventListener("keydown", function(event) {
-            if (event.ctrlKey && event.key == "c") { 
-                const pgid = shellPid; // The shell is process group leader
-                syscall("getForegroundProcessGroupOfPseudoTerminal").then((pgid) => {
-                    syscall("sendSignal", {signal: "interrupt", pgid});
-                })
-            } 
-
-            terminal.handleEvent("keydown", event);
-        });
-        */
-
+        window.onresize = (event) => {
+            terminal.resize(event.width, event.height);
+        }
+    
         while (true) {
             let text = await syscall("read", {streamId: terminalPtyReader});
 

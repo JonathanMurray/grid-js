@@ -208,8 +208,8 @@ class Syscalls {
     }
 
     graphics(proc, args) {
-        let {title, size} = validateSyscallArgs(args, ["title", "size"]);
-        return this.system.createWindow(title, size, proc);
+        let {title, size, resizable} = validateSyscallArgs(args, ["title", "size", "resizable"]);
+        return this.system.createWindow(title, size, proc, resizable);
     }
 
     sleep(proc, args) {

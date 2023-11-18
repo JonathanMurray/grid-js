@@ -226,13 +226,12 @@ class Sudoku {
 
 }
 
-
 async function main(args) {
 
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const window = await stdlib.createWindow("Sudoku", [300, 300]);
+    const window = await stdlib.createWindow("Sudoku", [300, 300], {resizable: false});
     const app = new Sudoku(window.canvas);
 
     window.onkeydown = (event) => {

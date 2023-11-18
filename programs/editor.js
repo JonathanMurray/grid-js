@@ -24,6 +24,10 @@ class Editor {
         await writeln(`Saved to ${this.fileName}`);
     }
 
+    resize(w, h) {
+        this.text.resize(w, h);
+    }
+
     handleEvent(name, event) {
         if (name == "keydown") {
             const key = event.key;
@@ -158,6 +162,11 @@ async function main(args) {
             app.handleEvent("keydown", event);
         }
     };
+
+    
+    window.onresize = (event) => {
+        app.resize(event.width, event.height);
+    }
 
     return programDonePromise;
 }

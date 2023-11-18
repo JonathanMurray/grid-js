@@ -4,6 +4,21 @@ const CLASS_WINDOW = "program-window";
 const CLASS_HEADER = "program-window-header";
 const CLASS_FOCUSED = "focused";
 
+const CURSOR_RESIZE_CLASS_NAMES = {
+    "NE": "cursor-ne-resize",
+    "SE": "cursor-se-resize",
+    "SW": "cursor-sw-resize",
+    "NW": "cursor-nw-resize",
+    "N": "cursor-n-resize",
+    "E": "cursor-e-resize",
+    "S": "cursor-s-resize",
+    "W": "cursor-w-resize",
+}
+
+const MIN_SIZE = [200, 100];
+
+const CANVAS_SCALE = window.devicePixelRatio; // Change to 1 on retina screens to see blurry canvas.
+
 class WindowManager {
 
     constructor() {
@@ -11,8 +26,10 @@ class WindowManager {
         this.maxZIndex = 1;
         this.windows = {};
         this.focusedWindow = null;
+        this.hoveredResize = null;
+        this.ongoingResize = null;
 
-        this.isEasyDragEnabled = false;
+        this.isEasyAimEnabled = false;
 
         window.addEventListener("mousemove", (event) => {
             if (this.draggingWindow != null) {
@@ -20,6 +37,60 @@ class WindowManager {
                 window.element.style.left = event.x - offset[0];
                 window.element.style.top = event.y - offset[1];
                 this.focusWindow(window);
+            } else if (this.ongoingResize != null) {
+                const {window, anchor, offset} = this.ongoingResize;
+
+                const rect = window.element.getBoundingClientRect();
+                //const canvas = window.element.querySelector("canvas");
+                const canvasWrapper = window.element.querySelector(".canvas-wrapper");
+                let canvasRect = canvasWrapper.getBoundingClientRect();
+
+                let newX;
+                let newY;
+                let newWidth;
+                let newHeight;
+
+                if (anchor.includes("N")) {
+                    const targetY = event.y - offset[1];
+                    const targetDY = targetY - rect.y;
+                    newHeight = Math.max(canvasRect.height - targetDY, MIN_SIZE[1]);
+                    const dy = canvasRect.height - newHeight;
+                    newY = rect.y + dy;
+                }
+                if (anchor.includes("E")) {
+                    const prevRight = rect.x + rect.width;
+                    const newRight = event.x - offset[0];
+                    const dx = newRight - prevRight;
+                    newWidth = Math.max(canvasRect.width + dx, MIN_SIZE[0]);
+                }
+                if (anchor.includes("S")) {
+                    const prevBot = rect.y + rect.height;
+                    const newBot = event.y - offset[1];
+                    const dy = newBot - prevBot;
+                    newHeight = Math.max(canvasRect.height + dy, MIN_SIZE[1]);
+                }
+                if (anchor.includes("W")) {
+                    const targetX = event.x - offset[0];
+                    const targetDX = targetX - rect.x;
+                    newWidth = Math.max(canvasRect.width - targetDX, MIN_SIZE[0]);
+                    const dx = canvasRect.width - newWidth;
+                    newX = rect.x + dx;
+                } 
+
+                if (newX != undefined) {
+                    window.element.style.left = newX;
+                }
+                if (newY != undefined) {
+                    window.element.style.top = newY;
+                }
+                if (newWidth != undefined) {
+                    canvasWrapper.style.width = newWidth;
+                    window.element.getElementsByClassName(CLASS_HEADER)[0].style.width = newWidth;
+                }
+                if (newHeight != undefined) {
+                    canvasWrapper.style.height = newHeight;
+                }
+
             }
         });
 
@@ -34,6 +105,20 @@ class WindowManager {
                 this.focusWindow(window);
                 this.draggingWindow = null;
             }
+
+            if (this.ongoingResize != null) {
+                const window = this.ongoingResize.window;
+                const canvasWrapper = window.element.querySelector(".canvas-wrapper");
+                const canvas = window.element.querySelector("canvas");
+                canvas.style.width = canvasWrapper.style.width;
+                canvas.style.height = canvasWrapper.style.height;
+                const canvasRect = canvas.getBoundingClientRect();
+                const resizeEvent = {width: canvasRect.width * CANVAS_SCALE, height: canvasRect.height * CANVAS_SCALE};
+                canvas.style.display = "none";
+                this.sendInputToProcess(window, {name: "resize", event: resizeEvent});
+                this.ongoingResize = null;
+            }
+            
         });
 
         window.addEventListener("keydown", (event) => {
@@ -52,7 +137,7 @@ class WindowManager {
                 // default = Chrome menu takes focus
                 event.preventDefault();
                 
-                this.enableEasyDrag();
+                this.enableEasyAim();
             }
 
             if (this.focusedWindow != null) {
@@ -61,21 +146,25 @@ class WindowManager {
         });
 
         window.addEventListener("keyup", (event) => {
-            console.log(event);
             if (event.key == "Control") {
-                this.disableEasyDrag();
+                this.disableEasyAim();
             }
         })
     }
 
-    enableEasyDrag() {
-        document.querySelector("body").classList.add("alt-cursor");
-        this.isEasyDragEnabled = true;
+    onResizeDone(pid) {
+        const canvas = this.windows[pid].element.querySelector("canvas");
+        canvas.style.display = "block";
     }
 
-    disableEasyDrag() {
-        document.querySelector("body").classList.remove("alt-cursor");
-        this.isEasyDragEnabled = false;
+    enableEasyAim() {
+        document.querySelector("body").classList.add("cursor-move");
+        this.isEasyAimEnabled = true;
+    }
+
+    disableEasyAim() {
+        document.querySelector("body").classList.remove("cursor-move");
+        this.isEasyAimEnabled = false;
     }
 
     sendInputToProcess(window, userInput) {
@@ -136,13 +225,29 @@ class WindowManager {
         this.focusWindow(window);
     }
 
+    clearResize() {
+        for (let key in CURSOR_RESIZE_CLASS_NAMES) {
+            const className = CURSOR_RESIZE_CLASS_NAMES[key];
+            document.querySelector("body").classList.remove(className);
+        }
+        this.hoveredResize = null;
+    }
+
+    setHoveredResize(anchor, window) {
+        const className = CURSOR_RESIZE_CLASS_NAMES[anchor];
+        console.assert(className != undefined);
+
+        this.clearResize();
+        document.querySelector("body").classList.add(className);
+        this.hoveredResize = {window, anchor};
+    }
     
-    createWindow(title, size, proc) {
+    createWindow(title, size, proc, resizable) {
         
         const pid = proc.pid;
         const worker = proc.worker;
         
-        const scale = window.devicePixelRatio; // Change to 1 on retina screens to see blurry canvas.
+        
 
         const header = document.createElement("div");
         header.classList.add(CLASS_HEADER);
@@ -154,58 +259,107 @@ class WindowManager {
         winElement.id = ID_WINDOW_PREFIX + pid;
         winElement.classList.add(CLASS_WINDOW);
 
+        const canvasWrapper = document.createElement("div");
+        canvasWrapper.classList.add("canvas-wrapper");
         const canvas = document.createElement("canvas");
+
         canvas.width = size[0];
         canvas.height = size[1];
-        
-        canvas.width = Math.floor(size[0] * scale);
-        canvas.height = Math.floor(size[1] * scale);
 
+        const styleSize = [`${size[0] / CANVAS_SCALE}px`, `${size[1] / CANVAS_SCALE}px`];
+        canvasWrapper.style.width = styleSize[0];
+        canvasWrapper.style.height = styleSize[1];
+        canvas.style.width = styleSize[0];
+        canvas.style.height = styleSize[1];
     
         winElement.appendChild(header);
-        winElement.appendChild(canvas);
+        winElement.appendChild(canvasWrapper);
+        canvasWrapper.appendChild(canvas);
 
         const offscreenCanvas = canvas.transferControlToOffscreen();
-    
-        header.addEventListener("mousedown", (event) => {
-            const left = parseInt(winElement.style.left.replace("px", "")) || winElement.getBoundingClientRect().x;
-            const top = parseInt(winElement.style.top.replace("px", "")) || winElement.getBoundingClientRect().y;
-            this.draggingWindow = {window: win, offset: [event.x - left, event.y - top]};
-            this.focusWindow(win);
-
-            // Prevent window manager from taking focus from the window
-            event.stopPropagation();
-        });
-
+        
         winElement.addEventListener("mousedown", (event) => {
-            if (this.isEasyDragEnabled) {
-                const left = parseInt(winElement.style.left.replace("px", "")) || winElement.getBoundingClientRect().x;
-                const top = parseInt(winElement.style.top.replace("px", "")) || winElement.getBoundingClientRect().y;
+            const left = winElement.getBoundingClientRect().x;
+            const top =  winElement.getBoundingClientRect().y;
+            if (this.isEasyAimEnabled && this.hoveredResize == null) {
                 this.draggingWindow = {window: win, offset: [event.x - left, event.y - top]};
             }
             this.focusWindow(win);
 
+            if (this.hoveredResize && this.hoveredResize.window == win) {
+                const anchor = this.hoveredResize.anchor;
+                this.hoveredResize = null;
+                const rect = winElement.getBoundingClientRect();
+
+                let offset = [0, 0];
+                if (anchor.includes("N")) {
+                    offset[1] = event.y - rect.y;
+                } else if (anchor.includes("E")) {
+                    offset[0] = event.x - (rect.x + rect.width);
+                } else if (anchor.includes("S")) {
+                    offset[1] = event.y - (rect.y + rect.height);
+                } else if (anchor.includes("W")) {
+                    offset[0] = event.x - rect.x;
+                }
+
+                this.ongoingResize = {window: win, anchor, offset};
+            }
+
             // Prevent window manager from taking focus from the window
             event.stopPropagation();
         });
-        
+
+        winElement.addEventListener("mousemove", (event) => {
+            if (this.draggingWindow == null && this.ongoingResize == null) {
+                const rec = winElement.getBoundingClientRect();
+                const x = event.x - rec.x;
+                const y = event.y - rec.y;
+                const margin = this.isEasyAimEnabled ? 30 : 5;
+
+                let anchor = "";
+                if (y < margin) {
+                    anchor += "N";
+                }
+                if (y > winElement.offsetHeight - margin) {
+                    anchor += "S";
+                }
+                if (x < margin) {
+                    anchor += "W";
+                }
+                if (x > winElement.offsetWidth - margin) {
+                    anchor += "E";
+                }
+
+                if (anchor && resizable) {
+                    this.setHoveredResize(anchor, win);
+                } else {
+                    this.clearResize();
+                }
+            }
+        });
+
+    
+        header.addEventListener("mousedown", (event) => {
+            if (this.hoveredResize == null) {
+                const left = parseInt(winElement.style.left.replace("px", "")) || winElement.getBoundingClientRect().x;
+                const top = parseInt(winElement.style.top.replace("px", "")) || winElement.getBoundingClientRect().y;
+                this.draggingWindow = {window: win, offset: [event.x - left, event.y - top]};
+            }
+        });
+
         // User input to process
         canvas.addEventListener("mousemove", (event) => {
-            this.sendInputToProcess(win, {name: "mousemove", event: {x: event.offsetX, y: event.offsetY}});
+            event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
+            this.sendInputToProcess(win, {name: "mousemove", event});
         });
         canvas.addEventListener("mouseout", (event) => {
             this.sendInputToProcess(win, {name: "mouseout", event: {}});
         });
         canvas.addEventListener("click", (event) => {
-            this.sendInputToProcess(win, {name: "click", event: {x: event.offsetX, y: event.offsetY}});
+            event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
+            this.sendInputToProcess(win, {name: "click", event});
         });
     
-        //TODO
-        header.addEventListener("focus", (event) => {
-            winElement.classList.add(CLASS_FOCUSED);
-        });
-
-
     
         document.getElementsByTagName("body")[0].appendChild(winElement);
 

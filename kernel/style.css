@@ -12,6 +12,43 @@
     background-color: rgb(55, 202, 239);
 }
 
-.alt-cursor .program-window {
-    cursor:move;
+.program-window-header {
+    /* Header shouldn't prevent window resize, and its contents shouldn't "spill out" visibly */
+    text-wrap: nowrap;
+    overflow: hidden;
+}
+
+.canvas-wrapper {
+    overflow: hidden;
+    background-color: lightgray;
+}
+
+.cursor-move .program-window {
+    cursor: move;
+}
+
+/* resize takes precedence over move during easy aim, so the classes need to do the same */
+.cursor-ne-resize .program-window {
+    cursor: ne-resize;
+}
+.cursor-se-resize .program-window {
+    cursor: se-resize;
+}
+.cursor-sw-resize .program-window {
+    cursor: sw-resize;
+}
+.cursor-nw-resize .program-window {
+    cursor: nw-resize;
+}
+.cursor-n-resize .program-window {
+    cursor: n-resize;
+}
+.cursor-e-resize .program-window {
+    cursor: e-resize;
+}
+.cursor-s-resize .program-window {
+    cursor: s-resize;
+}
+.cursor-w-resize .program-window {
+    cursor: w-resize;
 }

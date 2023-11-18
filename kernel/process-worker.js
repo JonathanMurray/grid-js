@@ -30,7 +30,7 @@ function sandbox(code, args) {
         pendingSyscalls[sequenceNum] = callbacks;
 
         console.assert(pid != null, "pid must have been assigned");
-        postMessage({syscall: {syscall: name, arg, pid, sequenceNum}});
+        postMessage({syscall: {syscall: name, arg, sequenceNum}});
 
         const result = new Promise((resolve, reject) => {
             callbacks.resolve = resolve;

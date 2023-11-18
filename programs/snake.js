@@ -32,6 +32,11 @@ class Snake {
         writeln("Use WASD or arrow keys for movement.");
     }
 
+    resize(width, height) {
+        this.grid.resizeCanvasLetterboxed(width, height);
+        this.grid.draw();
+    }
+
     resetGameState() {
         this.gameOver = false;
         this.score = 0;
@@ -75,8 +80,6 @@ class Snake {
                     this.resetGameState();
                     this.run();
                 }
-            } else {
-                console.log(key);
             }
         }
     }
@@ -194,6 +197,15 @@ async function main(args) {
             snake.handleEvent("keydown", event);
         }
     };
+
+    window.onresize = (event) => {
+        console.log("TODO SNAKE RESIZE: ", event);
+        const shortestSide = Math.min(event.width, event.height);
+        snake.resize(event.width, event.height);
+        //window.canvas.width = shortestSide;
+       // window.canvas.height = shortestSide;
+        //snake.grid.draw();
+    }
 
     snake.run();
 

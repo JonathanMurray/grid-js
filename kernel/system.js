@@ -109,7 +109,7 @@ class System {
         const system = new System(files);
 
         const pid = system.spawnProcess({programName: "terminal", args: [], streams: {}, ppid: null, pgid: "START_NEW", sid: null});
-        //const pid = system.spawnProcess({programName: "sudoku", args: [], streams: {1: new NullStream()}, ppid: null, pgid: "START_NEW", sid: null});
+        //const pid = system.spawnProcess({programName: "snake", args: [], streams: {1: new NullStream()}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }
@@ -137,8 +137,6 @@ class System {
         return await this.syscalls[syscall](proc, args);
     }
 
-
-
     waitForOtherProcessToExit(pid, pidToWaitFor) {
         const proc = this.process(pid);
         const procToWaitFor = this.process(pidToWaitFor);
@@ -157,17 +155,19 @@ class System {
         });
     }
     
-    handleMessageFromWorker(message) {
+    handleMessageFromWorker(pid, message) {
         if ("syscall" in message.data) {
             // Sandboxed programs send us syscalls from iframe
-            this.handleSyscallMessage(message);
+            this.handleSyscallMessage(pid, message);
+        } else if ("resizeDone" in message.data) {
+            this.windowManager.onResizeDone(pid);
         } else {
             console.error("Unhandled message from worker: ", message);
         }
     }
 
-    handleSyscallMessage(message) {
-        const {syscall, arg, pid, sequenceNum} = message.data.syscall;
+    handleSyscallMessage(pid, message) {
+        const {syscall, arg, sequenceNum} = message.data.syscall;
 
         console.log(pid, `${syscall}(${JSON.stringify(arg)}) ...`);
         this.call(syscall, arg, pid).then((result) => {
@@ -213,7 +213,7 @@ class System {
 
                 
                 worker.postMessage({startProcess: {programName, code, args, pid}});
-                worker.onmessage = (msg) => this.handleMessageFromWorker(msg);
+                worker.onmessage = (msg) => this.handleMessageFromWorker(pid, msg);
 
                 return pid;
             }
@@ -222,8 +222,8 @@ class System {
         throw new SysError("no such program file: " + programName);
     }
 
-    createWindow(title, size, proc) {
-        return this.windowManager.createWindow(title, size, proc);
+    createWindow(title, size, proc, resizable) {
+        return this.windowManager.createWindow(title, size, proc, resizable);
     }
 
     onProcessExit(proc, exitValue) {
