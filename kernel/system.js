@@ -57,7 +57,7 @@ class System {
 
         this.pseudoTerminals = {};
      
-        this.windowManager = new WindowManager();
+        this.windowManager = null;
 
         // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
         this.nextOpenFileDescriptionId = 1;
@@ -108,8 +108,16 @@ class System {
 
         const system = new System(files);
 
-        const pid = system.spawnProcess({programName: "terminal", args: [], streams: {}, ppid: null, pgid: "START_NEW", sid: null});
-        //const pid = system.spawnProcess({programName: "snake", args: [], streams: {1: new NullStream()}, ppid: null, pgid: "START_NEW", sid: null});
+        function spawnFromUi(programName) {
+            const streams = {1: new NullStream(), 2: new NullStream()};
+            system.spawnProcess({programName, args: [], streams, ppid: null, pgid: "START_NEW", sid: null});    
+        }
+
+        system.windowManager = await WindowManager.init(spawnFromUi);
+
+        const initProgram = "terminal";
+
+        system.spawnProcess({programName: initProgram, args: [], streams: {}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }

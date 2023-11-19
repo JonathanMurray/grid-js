@@ -25,7 +25,7 @@ async function main(args) {
     if (procs.length > 0) {
         await writeln("sid  pgid  ppid  pid  program   status")
         for (let proc of procs) {
-            const ppid = formatPpid(proc.pid);
+            const ppid = formatPpid(proc.ppid);
             await writeln(pad(proc.sid, 5) + pad(proc.pgid, 6) + pad(ppid, 6) + pad(proc.pid, 5) + pad(proc.programName, 10) + formatExitValue(proc.exitValue))
         }
     } else {

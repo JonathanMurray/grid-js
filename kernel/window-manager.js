@@ -17,11 +17,23 @@ const CURSOR_RESIZE_CLASS_NAMES = {
 
 const MIN_SIZE = [200, 100];
 
+const PROGRAM_LAUNCHER = "launcher";
+
 const CANVAS_SCALE = window.devicePixelRatio; // Change to 1 on retina screens to see blurry canvas.
 
 class WindowManager {
 
-    constructor() {
+    static async init(launchProgram) {
+        const doc = await WindowManager.fetchAndRenderTemplate("/kernel/screen-area.html");
+        const screenArea = doc.querySelector("#screen-area");
+        document.querySelector("body").appendChild(screenArea);
+        return new WindowManager(screenArea, launchProgram);
+    }
+
+    constructor(screenArea, spawnProgram) {
+        this.screenArea = screenArea;
+        this.spawnProgram = spawnProgram;
+
         this.draggingWindow = null;
         this.maxZIndex = 1;
         this.windows = {};
@@ -31,18 +43,15 @@ class WindowManager {
 
         this.isEasyAimEnabled = false;
 
-        this.screenArea = document.createElement("div");
-        this.screenArea.id = "screen-area";
-        document.querySelector("body").appendChild(this.screenArea);
         this.screenRect = this.screenArea.getBoundingClientRect();
 
-        this.dock = document.createElement("div");
-        this.dock.id = "dock";
-        
-        this.screenArea.appendChild(this.dock);
+        this.dock = document.querySelector("#dock");
+        document.querySelector("#launcher-icon").addEventListener("mousedown", (event) => {
+            this.showLauncher();
 
-
-
+            // Prevent window manager from taking focus from the launcher
+            event.stopPropagation();
+        });
 
         window.addEventListener("mousemove", (event) => {
             const {mouseX, mouseY} = this.translateMouse(event);
@@ -165,6 +174,17 @@ class WindowManager {
         })
     }
 
+    showLauncher() {
+        for (let pid in this.windows) {
+            const win = this.windows[pid];
+            if (win.process.programName == PROGRAM_LAUNCHER) {
+                this.focusWindow(win);
+                return;
+            }
+        }
+        this.spawnProgram(PROGRAM_LAUNCHER);
+    }
+
     rect(element) {
         const rect = element.getBoundingClientRect();
         return {x: rect.x - this.screenRect.x, y: rect.y - this.screenRect.y, width: rect.width, height: rect.height};
@@ -259,7 +279,7 @@ class WindowManager {
         this.hoveredResize = {window, anchor};
     }
 
-    renderTemplate(template, args) {
+    static renderTemplate(template, args) {
         const regex = /{{([a-z]+)}}/;
         for (let i = 0; i < 100; i ++) {
             const match = template.match(regex);
@@ -272,10 +292,10 @@ class WindowManager {
         console.error("Didn't render the entire template: ", template);
     }
 
-    async fetchAndRenderTemplate(url, args) {
+    static async fetchAndRenderTemplate(url, args) {
         const response = await fetch(url);
         const template = await response.text();
-        const rendered = this.renderTemplate(template, args)
+        const rendered = WindowManager.renderTemplate(template, args)
         const parser = new DOMParser();
         const doc = parser.parseFromString(rendered, 'text/html');
         return doc;
@@ -298,7 +318,7 @@ class WindowManager {
         const pid = proc.pid;
         title = `[${pid}] ${title || "Untitled"}`
 
-        const doc = await this.fetchAndRenderTemplate("/kernel/window-template.html", {pid, title, width, height});
+        const doc = await WindowManager.fetchAndRenderTemplate("/kernel/window-template.html", {pid, title, width, height});
 
         const winElement = doc.querySelector('.program-window');
         const win = {element: winElement, process: proc};

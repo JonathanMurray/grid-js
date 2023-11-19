@@ -22,23 +22,46 @@
     background: darkturquoise;
 }
 
-.dock-item {
+#launcher-icon {
+    float: left;
     height: 100%;
-    border: 2px solid black;
-    border-bottom: none;
+    width: 100px;
+    margin-top: 2px;
+    margin-right: 10px;
+
+    user-select: none; /* prevent cursor-change and ability to copy-paste text */
+    text-align: center;
+    font-family: monospace; 
+    font-size: 16px;
+    font-weight: bold; 
+    color: whitesmoke;
+    cursor: pointer;
+}
+#launcher-icon:hover {
+    color: red;
+}
+
+.dock-item {
+    border: 1px solid black;
     width: 70px;
     float: left;
+    margin-top: 2px;
+    margin-right: 4px;
 
     overflow: hidden;
     user-select: none; /* prevent cursor-change and ability to copy-paste text */
     text-align: center;
     font-family: monospace; 
-    
     font-size: 16px; 
+    cursor: pointer;
+}
+.dock-item:hover {
+    color: white;
 }
 .dock-item.focused {
-    background-color: rgb(55, 202, 239);
+    background-color: rgb(100, 202, 255);
     font-weight: bold; 
+    border-color: gray;
 }
 
 .program-window {

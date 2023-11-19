@@ -2,21 +2,61 @@
 
 async function main(args) {
 
-    //await syscall("handleInterruptSignal");
+    const window = await stdlib.createWindow("Launcher", [450, 250], {resizable: false});
 
-    await writeln("Let's launch some apps!");
+    const canvas = window.canvas;
+    const textGrid = new TextGrid(canvas, [12, 21]);
 
-    let pids = [];
+    const introLines = ["Select a program, using the arrow or w/s keys.", "Press enter to launch it.", ""];
+    const programs = {
+        "terminal": "Explore the system with a shell.",
+        "snake": "Eat the fruit and don't collide!",
+        "sudoku": "Solve the puzzle!",
+        "editor": "Edit text files.",
+    };
+    const numPrograms = Object.keys(programs).length;
 
-    pids.push(await syscall("spawn", {program: "sudoku", pgid: "START_NEW"}));
-    pids.push(await syscall("spawn", {program: "snake", pgid: "START_NEW"}));
-    
-    await writeln("Launched: " + pids);
+    function moveCursor(delta) {
+        textGrid.lines[textGrid.cursorLine] = textGrid.lines[textGrid.cursorLine].replace("[x]", "[ ]");
+        textGrid.cursorLine = Math.max(Math.min(textGrid.cursorLine + delta, introLines.length + numPrograms - 1), introLines.length);
+        textGrid.lines[textGrid.cursorLine] = textGrid.lines[textGrid.cursorLine].replace("[ ]", "[x]");
 
-    for (let pid of pids) {
-        const result = await syscall("waitForExit", pid);
-        await writeln(`${pid}: ${JSON.stringify(result)}`);
+        const program = textGrid.lines[textGrid.cursorLine].replace("[x] ", "");
+        textGrid.lines[introLines.length + numPrograms + 1] = programs[program];
     }
 
-    await writeln("All apps have stopped running.");
+    window.onkeydown = (event) => {
+        const key = event.key;
+        if (key == "ArrowDown" || key == "s") {
+            moveCursor(1);
+            textGrid.draw();
+        }
+        if (key == "ArrowUp" || key == "w") {
+            moveCursor(-1);
+            textGrid.draw();
+        }
+        if (key == "Enter") {
+            const program = textGrid.lines[textGrid.cursorLine].replace("[x] ", "");
+            launch(program);
+        }
+        if (event.ctrlKey && key == "c") {
+            syscall("exit");
+        }
+    }
+
+
+    async function launch(program) {
+        await syscall("spawn", {program, pgid: "START_NEW"});
+        syscall("exit");
+    }
+
+    textGrid.cursorChar = 1;
+    textGrid.cursorLine = introLines.length;
+
+    textGrid.lines = introLines.concat(Object.keys(programs).map((name) => `[ ] ${name}`)).concat("", "hey there. Here are some tips");
+    textGrid.lines[textGrid.cursorLine] = textGrid.lines[textGrid.cursorLine].replace("[ ]", "[x]");
+    moveCursor(0);
+    textGrid.draw();
+
+    return new Promise((r) => {});
 }
