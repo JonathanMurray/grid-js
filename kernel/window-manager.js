@@ -31,19 +31,24 @@ class WindowManager {
 
         this.isEasyAimEnabled = false;
 
+        this.screenArea = document.createElement("div");
+        this.screenArea.id = "screen-area";
+        document.querySelector("body").appendChild(this.screenArea);
+        this.screenRect = this.screenArea.getBoundingClientRect();
+
         window.addEventListener("mousemove", (event) => {
+            const {mouseX, mouseY} = this.translateMouse(event);
             if (this.draggingWindow != null) {
                 const {window, offset} = this.draggingWindow;
-                window.element.style.left = event.x - offset[0];
-                window.element.style.top = event.y - offset[1];
+                window.element.style.left = mouseX - offset[0];
+                window.element.style.top = mouseY - offset[1];
                 this.focusWindow(window);
             } else if (this.ongoingResize != null) {
                 const {window, anchor, offset} = this.ongoingResize;
 
-                const rect = window.element.getBoundingClientRect();
-                //const canvas = window.element.querySelector("canvas");
+                const rect = this.rect(window.element);
                 const canvasWrapper = window.element.querySelector(".canvas-wrapper");
-                let canvasRect = canvasWrapper.getBoundingClientRect();
+                const canvasRect = this.rect(canvasWrapper);
 
                 let newX;
                 let newY;
@@ -51,7 +56,7 @@ class WindowManager {
                 let newHeight;
 
                 if (anchor.includes("N")) {
-                    const targetY = event.y - offset[1];
+                    const targetY = mouseY - offset[1];
                     const targetDY = targetY - rect.y;
                     newHeight = Math.max(canvasRect.height - targetDY, MIN_SIZE[1]);
                     const dy = canvasRect.height - newHeight;
@@ -59,18 +64,18 @@ class WindowManager {
                 }
                 if (anchor.includes("E")) {
                     const prevRight = rect.x + rect.width;
-                    const newRight = event.x - offset[0];
+                    const newRight = mouseX - offset[0];
                     const dx = newRight - prevRight;
                     newWidth = Math.max(canvasRect.width + dx, MIN_SIZE[0]);
                 }
                 if (anchor.includes("S")) {
                     const prevBot = rect.y + rect.height;
-                    const newBot = event.y - offset[1];
+                    const newBot = mouseY - offset[1];
                     const dy = newBot - prevBot;
                     newHeight = Math.max(canvasRect.height + dy, MIN_SIZE[1]);
                 }
                 if (anchor.includes("W")) {
-                    const targetX = event.x - offset[0];
+                    const targetX = mouseX - offset[0];
                     const targetDX = targetX - rect.x;
                     newWidth = Math.max(canvasRect.width - targetDX, MIN_SIZE[0]);
                     const dx = canvasRect.width - newWidth;
@@ -112,7 +117,7 @@ class WindowManager {
                 const canvas = window.element.querySelector("canvas");
                 canvas.style.width = canvasWrapper.style.width;
                 canvas.style.height = canvasWrapper.style.height;
-                const canvasRect = canvas.getBoundingClientRect();
+                const canvasRect = this.rect(canvas);
                 const resizeEvent = {width: canvasRect.width * CANVAS_SCALE, height: canvasRect.height * CANVAS_SCALE};
                 canvas.style.display = "none";
                 this.sendInputToProcess(window, {name: "resize", event: resizeEvent});
@@ -152,18 +157,24 @@ class WindowManager {
         })
     }
 
+    rect(element) {
+        
+        const rect = element.getBoundingClientRect();
+        return {x: rect.x - this.screenRect.x, y: rect.y - this.screenRect.y, width: rect.width, height: rect.height};
+    }
+
     onResizeDone(pid) {
         const canvas = this.windows[pid].element.querySelector("canvas");
         canvas.style.display = "block";
     }
 
     enableEasyAim() {
-        document.querySelector("body").classList.add("cursor-move");
+        this.screenArea.classList.add("cursor-move");
         this.isEasyAimEnabled = true;
     }
 
     disableEasyAim() {
-        document.querySelector("body").classList.remove("cursor-move");
+        this.screenArea.classList.remove("cursor-move");
         this.isEasyAimEnabled = false;
     }
 
@@ -228,7 +239,7 @@ class WindowManager {
     clearResize() {
         for (let key in CURSOR_RESIZE_CLASS_NAMES) {
             const className = CURSOR_RESIZE_CLASS_NAMES[key];
-            document.querySelector("body").classList.remove(className);
+            this.screenArea.classList.remove(className);
         }
         this.hoveredResize = null;
     }
@@ -238,7 +249,7 @@ class WindowManager {
         console.assert(className != undefined);
 
         this.clearResize();
-        document.querySelector("body").classList.add(className);
+        this.screenArea.classList.add(className);
         this.hoveredResize = {window, anchor};
     }
 
@@ -272,9 +283,8 @@ class WindowManager {
             return [parseInt(frontMost.element.style.left.replace("px", "")) + offset,
                     parseInt(frontMost.element.style.top.replace("px", "")) + offset];
         } else {
-            const availableScreenSpace = document.getElementsByTagName("body")[0].getBoundingClientRect()
-            return [availableScreenSpace.width / 2 - width / 2,
-                    availableScreenSpace.height / 2 - height / 2];
+            const available = this.screenArea.getBoundingClientRect();
+            return [available.width / 2 - width / 2, available.height / 2 - height / 2];
         }
     }
 
@@ -296,27 +306,29 @@ class WindowManager {
         canvas.style.height = styleSize[1];
         
         winElement.addEventListener("mousedown", (event) => {
-            const left = winElement.getBoundingClientRect().x;
-            const top =  winElement.getBoundingClientRect().y;
+            const {mouseX, mouseY} = this.translateMouse(event);
+            const rect = this.rect(winElement);
             if (this.isEasyAimEnabled && this.hoveredResize == null) {
-                this.draggingWindow = {window: win, offset: [event.x - left, event.y - top]};
+                this.draggingWindow = {window: win, offset: [mouseX - rect.x, mouseY - rect.y]};
             }
             this.focusWindow(win);
 
             if (this.hoveredResize && this.hoveredResize.window == win) {
                 const anchor = this.hoveredResize.anchor;
                 this.hoveredResize = null;
-                const rect = winElement.getBoundingClientRect();
 
                 let offset = [0, 0];
                 if (anchor.includes("N")) {
-                    offset[1] = event.y - rect.y;
-                } else if (anchor.includes("E")) {
-                    offset[0] = event.x - (rect.x + rect.width);
-                } else if (anchor.includes("S")) {
-                    offset[1] = event.y - (rect.y + rect.height);
-                } else if (anchor.includes("W")) {
-                    offset[0] = event.x - rect.x;
+                    offset[1] = mouseY - rect.y;
+                }
+                if (anchor.includes("E")) {
+                    offset[0] = mouseX - (rect.x + rect.width);
+                } 
+                if (anchor.includes("S")) {
+                    offset[1] = mouseY - (rect.y + rect.height);
+                } 
+                if (anchor.includes("W")) {
+                    offset[0] = mouseX - rect.x;
                 }
 
                 this.ongoingResize = {window: win, anchor, offset};
@@ -327,10 +339,11 @@ class WindowManager {
         });
 
         winElement.addEventListener("mousemove", (event) => {
+            const {mouseX, mouseY} = this.translateMouse(event);
             if (this.draggingWindow == null && this.ongoingResize == null) {
-                const rec = winElement.getBoundingClientRect();
-                const x = event.x - rec.x;
-                const y = event.y - rec.y;
+                const rect = this.rect(winElement);
+                const x = mouseX - rect.x;
+                const y = mouseY - rect.y;
                 const margin = this.isEasyAimEnabled ? 30 : 5;
 
                 let anchor = "";
@@ -357,10 +370,12 @@ class WindowManager {
 
         const header = winElement.querySelector(".program-window-header");
         header.addEventListener("mousedown", (event) => {
+            const {mouseX, mouseY} = this.translateMouse(event);
             if (this.hoveredResize == null) {
-                const left = parseInt(winElement.style.left.replace("px", "")) || winElement.getBoundingClientRect().x;
-                const top = parseInt(winElement.style.top.replace("px", "")) || winElement.getBoundingClientRect().y;
-                this.draggingWindow = {window: win, offset: [event.x - left, event.y - top]};
+                const rect = this.rect(winElement);
+                const left = parseInt(winElement.style.left.replace("px", "")) || rect.x;
+                const top = parseInt(winElement.style.top.replace("px", "")) || rect.y;
+                this.draggingWindow = {window: win, offset: [mouseX - left, mouseY - top]};
             }
         });
 
@@ -377,9 +392,9 @@ class WindowManager {
             this.sendInputToProcess(win, {name: "click", event});
         });
     
-        document.querySelector("body").appendChild(winElement);
+        this.screenArea.appendChild(winElement);
 
-        const rect = winElement.getBoundingClientRect();
+        const rect = this.rect(winElement);
         const position = this.positionNewWindow(rect.width, rect.height);
         winElement.style.left = position[0];
         winElement.style.top = position[1];
@@ -401,5 +416,10 @@ class WindowManager {
             console.log("Removed window. ", this.windows);
         }
 
+        this.focusFrontMostWindow();
+    }
+
+    translateMouse(event) {
+        return {mouseX: event.x - this.screenRect.x, mouseY: event.y - this.screenRect.y};
     }
 }

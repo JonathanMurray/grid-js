@@ -1,7 +1,20 @@
+
+#screen-area {
+    position: relative;
+    overflow: hidden;
+    /*
+    left: 10px;
+    top: 10px;
+    */
+    width: 1024; 
+    height: 768; 
+
+    background-color: lightsteelblue; 
+}
+
 .program-window {
-    outline: none;
-    display: block; 
     position: absolute; 
+
     background: white; 
     user-select: none; 
     border: 2px solid lightgray;
@@ -11,16 +24,16 @@
 }
 
 .program-window-header {
+    /* Header shouldn't prevent window resize, and its contents shouldn't "spill out" visibly */
+    text-wrap: nowrap;
+    overflow: hidden;
+
     background-color: rgb(240, 240, 240);
     border-bottom: 2px solid lightgray;
     font-family: monospace; 
     font-weight: bold; 
     font-size: 18px; 
     height: 25px;
-
-    /* Header shouldn't prevent window resize, and its contents shouldn't "spill out" visibly */
-    text-wrap: nowrap;
-    overflow: hidden;
 }
 .program-window.focused .program-window-header {
     background-color: rgb(55, 202, 239);
@@ -28,6 +41,7 @@
 
 .canvas-wrapper {
     overflow: hidden;
+    
     background-color: lightgray;
 }
 

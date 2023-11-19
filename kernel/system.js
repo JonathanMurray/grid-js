@@ -175,6 +175,8 @@ class System {
                 console.log(pid, `${syscall}(${JSON.stringify(arg)}) --> ${JSON.stringify(result)}`);
                 let transfer = [];
                 if (result instanceof OffscreenCanvas) {
+                    // Ownership of the canvas needs to be transferred to the worker
+                    // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
                     transfer.push(result);
                 }
                 this.processes[pid].worker.postMessage({syscallResult: {success: result, sequenceNum}}, transfer);
@@ -242,8 +244,6 @@ class System {
             }
     
             //console.log("Pseudo terminal sids: ", Object.keys(this.pseudoTerminals));
-    
-            this.windowManager.focusFrontMostWindow();
         }
     }
 
