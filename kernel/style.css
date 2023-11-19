@@ -12,11 +12,40 @@
     background-color: lightsteelblue; 
 }
 
+#dock {
+    position: absolute;
+    bottom: 0;
+
+    z-index: 2147483647; /* dock is always on top. i32 max */
+    height: 25;
+    width: 100%;
+    background: darkturquoise;
+}
+
+.dock-item {
+    height: 100%;
+    border: 2px solid black;
+    border-bottom: none;
+    width: 70px;
+    float: left;
+
+    overflow: hidden;
+    user-select: none; /* prevent cursor-change and ability to copy-paste text */
+    text-align: center;
+    font-family: monospace; 
+    
+    font-size: 16px; 
+}
+.dock-item.focused {
+    background-color: rgb(55, 202, 239);
+    font-weight: bold; 
+}
+
 .program-window {
     position: absolute; 
 
     background: white; 
-    user-select: none; 
+    user-select: none; /* prevent cursor-change and ability to copy-paste text */
     border: 2px solid lightgray;
 }
 .program-window.focused {

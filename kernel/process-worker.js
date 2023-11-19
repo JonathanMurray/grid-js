@@ -1,7 +1,7 @@
 // This file runs a process, sandboxed in a web worker
 // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers
 
-importScripts("/lib/stdlib.js", "/lib/grid.js", "/lib/text-grid.js");
+importScripts("/util.js", "/lib/stdlib.js", "/lib/grid.js", "/lib/text-grid.js");
 const {write, writeln, readln, log} = stdlib;
 
 function sandbox(code, args) {
@@ -25,11 +25,11 @@ function sandbox(code, args) {
     this.syscall = async function(name, arg) {
 
         let sequenceNum = nextSyscallSequenceNum ++;
-        console.assert(!(sequenceNum in pendingSyscalls), `message id ${sequenceNum} in ${JSON.stringify(pendingSyscalls)}`);
+        assert(!(sequenceNum in pendingSyscalls), `message id ${sequenceNum} in ${JSON.stringify(pendingSyscalls)}`);
         let callbacks = {};
         pendingSyscalls[sequenceNum] = callbacks;
 
-        console.assert(pid != null, "pid must have been assigned");
+        assert(pid != null, "pid must have been assigned");
         postMessage({syscall: {syscall: name, arg, sequenceNum}});
 
         const result = new Promise((resolve, reject) => {
@@ -99,16 +99,19 @@ function sandbox(code, args) {
 
         if ("startProcess" in data) {
             
-            console.assert("programName" in data.startProcess);
-            console.assert("code" in data.startProcess);
-            console.assert("args" in data.startProcess);
-            console.assert("pid" in data.startProcess);
-            console.assert(pid == null);
+            assert("programName" in data.startProcess);
+            assert("code" in data.startProcess);
+            assert("args" in data.startProcess);
+            assert("pid" in data.startProcess);
+            assert(pid == null);
 
             const {args} = data.startProcess;
             pid = data.startProcess.pid;
             programName = data.startProcess.programName;
             code = data.startProcess.code;
+
+            //  DEBUG(expr) is a "macro", available to application code.
+            code = code.replaceAll(/DEBUG\(([^;]+)\)/g, `console.log(${pid}, "${programName} DEBUG($1):", $1)`)
 
             // in 'strict mode' eval:ed code is not allowed to declare new variables, so without this main doesn't make it out of the eval
             code += "\nthis.main = main";
@@ -123,13 +126,13 @@ function sandbox(code, args) {
             }
 
         } else if ("syscallResult" in data) {
-            console.assert(pid != null);
+            assert(pid != null);
             const sequenceNum = data.syscallResult.sequenceNum;
             if ("success" in data.syscallResult) {
                 const result = data.syscallResult.success;
                 onSyscallSuccess(sequenceNum, result);
             } else {
-                console.assert("error" in data.syscallResult);
+                assert("error" in data.syscallResult);
                 const error = data.syscallResult.error;
                 onSyscallError(sequenceNum, error);
             }

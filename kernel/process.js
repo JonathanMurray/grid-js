@@ -2,10 +2,10 @@
 class Process {
 
     constructor(worker, code, programName, args, pid, streams, ppid, pgid, sid) {
-        console.assert(streams != undefined);
-        console.assert(Number.isInteger(pid));
-        console.assert(Number.isInteger(pgid));
-        console.assert(Number.isInteger(sid));
+        assert(streams != undefined);
+        assert(Number.isInteger(pid));
+        assert(Number.isInteger(pgid));
+        assert(Number.isInteger(sid));
         this.worker = worker;
         this.code = code;
         this.pid = pid; // Process ID
@@ -21,7 +21,7 @@ class Process {
             streamId = parseInt(streamId);
             this.nextStreamId = Math.max(this.nextStreamId, streamId + 1);
         }
-        console.assert(this.nextStreamId != NaN);
+        assert(this.nextStreamId != NaN);
         
         this.exitValue = null;
         this.exitWaiters = [];
@@ -103,7 +103,7 @@ class Process {
 
     read(streamId) {
         const inputStream = this.streams[streamId];
-        console.assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
+        assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
         const {promise, promiseId} = this.promise();
         const reader = ({error, text}) => {
             if (error != undefined) {
@@ -129,7 +129,7 @@ class Process {
         const self = this;
         for (let streamId of streamIds) {
             const inputStream = this.streams[streamId];
-            console.assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
+            assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
 
             const reader = (text) => {
                 if (hasResolvedPromise) {

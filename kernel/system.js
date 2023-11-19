@@ -31,7 +31,7 @@ class OpenFileDescription {
 
     onStreamClose() {
         this.numStreams --;
-        console.assert(this.numStreams >= 0);
+        assert(this.numStreams >= 0);
 
         if (this.numStreams == 0) {
             delete this.system.openFileDescriptions[this.id];
@@ -39,7 +39,7 @@ class OpenFileDescription {
     }
 
     onStreamDuplicate() {
-        console.assert(this.numStreams > 0); // One must exist to be duplicated
+        assert(this.numStreams > 0); // One must exist to be duplicated
         this.numStreams ++;
     }
 }
@@ -127,7 +127,7 @@ class System {
         }
 
         const proc = this.processes[pid];
-        console.assert(proc != undefined);
+        assert(proc != undefined);
 
         if (args == undefined) {
             // Syscall implementations that try to destructure args crash otherwise
@@ -169,10 +169,10 @@ class System {
     handleSyscallMessage(pid, message) {
         const {syscall, arg, sequenceNum} = message.data.syscall;
 
-        console.log(pid, `${syscall}(${JSON.stringify(arg)}) ...`);
+        console.debug(pid, `${syscall}(${JSON.stringify(arg)}) ...`);
         this.call(syscall, arg, pid).then((result) => {
             if (pid in this.processes) {
-                console.log(pid, `${syscall}(${JSON.stringify(arg)}) --> ${JSON.stringify(result)}`);
+                console.debug(pid, `${syscall}(${JSON.stringify(arg)}) --> ${JSON.stringify(result)}`);
                 let transfer = [];
                 if (result instanceof OffscreenCanvas) {
                     // Ownership of the canvas needs to be transferred to the worker
@@ -194,7 +194,7 @@ class System {
     }
 
     spawnProcess({programName, args, streams, ppid, pgid, sid}) {
-        console.assert(args != undefined);
+        assert(args != undefined);
         if (programName in this.files) {
             const lines = this.files[programName].text.split("\n");
             if (lines[0] == "<script>") {
@@ -230,7 +230,7 @@ class System {
 
     onProcessExit(proc, exitValue) {
         const pid = proc.pid;
-        console.assert(pid != undefined);
+        assert(pid != undefined);
         console.log(`[${pid}] PROCESS EXIT`)
         if (proc.exitValue == null) {
             proc.onExit(exitValue);
@@ -362,24 +362,24 @@ class Pipe {
 
     onReaderClose() {
         this.numReaders --;
-        console.assert(this.numReaders >= 0);
+        assert(this.numReaders >= 0);
     }
 
     onWriterClose() {
         this.numWriters --;
-        console.assert(this.numWriters >= 0);
+        assert(this.numWriters >= 0);
         if (this.numWriters == 0) {
             this.buffer += EOT; // This will signal end of stream to anyone reading it
         }
     }
     
     onReaderDuplicate() {
-        console.assert(this.numReaders > 0); // one must already exist, for duplication 
+        assert(this.numReaders > 0); // one must already exist, for duplication 
         this.numReaders ++;
     }
 
     onWriterDuplicate() {
-        console.assert(this.numWriters > 0); // one must already exist, for duplication 
+        assert(this.numWriters > 0); // one must already exist, for duplication 
         this.numWriters ++;
     }
 
@@ -393,13 +393,13 @@ class Pipe {
     }
 
     requestRead({reader, proc}) {
-        console.assert(this.numReaders > 0);
+        assert(this.numReaders > 0);
         this.waitingReaders.push({reader, proc});
         this.handleWaitingReaders();
     }
     
     requestWrite(writer) {
-        console.assert(this.numWriters > 0);
+        assert(this.numWriters > 0);
         if (this.numReaders == 0) {
             writer("read-end is closed");
             return;
@@ -444,7 +444,7 @@ class PipeReader {
     }
 
     requestRead({reader, proc}) {
-        console.assert(this.isOpen);
+        assert(this.isOpen);
         return this.pipe.requestRead({reader, proc});
     }
 
@@ -460,7 +460,7 @@ class PipeReader {
     }
 
     duplicate () {
-        console.assert(this.isOpen);
+        assert(this.isOpen);
         this.pipe.onReaderDuplicate();
         return new PipeReader(this.pipe);
     }
@@ -473,7 +473,7 @@ class PipeWriter {
     }
 
     requestWrite(writer) {
-        console.assert(this.isOpen);
+        assert(this.isOpen);
         return this.pipe.requestWrite(writer);
     }
 
@@ -489,7 +489,7 @@ class PipeWriter {
     }
 
     duplicate () {
-        console.assert(this.isOpen);
+        assert(this.isOpen);
         this.pipe.onWriterDuplicate();
         return new PipeWriter(this.pipe);
     }
@@ -502,13 +502,13 @@ class FileStream {
     }
 
     requestWrite(writer) {
-        console.assert(this.isOpen);
+        assert(this.isOpen);
         const text = writer();
         this.openFileDescription.write(text);
     }
     
     requestRead({reader, proc}) {
-        console.assert(this.isOpen);
+        assert(this.isOpen);
         const text = this.openFileDescription.read();
         reader({text});
     }
@@ -521,7 +521,7 @@ class FileStream {
     }
 
     duplicate() {
-        console.assert(this.isOpen);
+        assert(this.isOpen);
         this.openFileDescription.onStreamDuplicate();
         return new FileStream(this.openFileDescription);
     }

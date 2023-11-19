@@ -173,7 +173,7 @@ class Syscalls {
                     const parentStreamId = parseInt(streamIds[i]);
                     stream = proc.streams[parentStreamId].duplicate();
                 }
-                console.assert(stream != undefined);
+                assert(stream != undefined);
                 streams[i] = stream;
             }
         } else {

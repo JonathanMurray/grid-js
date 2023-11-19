@@ -36,6 +36,14 @@ class WindowManager {
         document.querySelector("body").appendChild(this.screenArea);
         this.screenRect = this.screenArea.getBoundingClientRect();
 
+        this.dock = document.createElement("div");
+        this.dock.id = "dock";
+        
+        this.screenArea.appendChild(this.dock);
+
+
+
+
         window.addEventListener("mousemove", (event) => {
             const {mouseX, mouseY} = this.translateMouse(event);
             if (this.draggingWindow != null) {
@@ -158,7 +166,6 @@ class WindowManager {
     }
 
     rect(element) {
-        
         const rect = element.getBoundingClientRect();
         return {x: rect.x - this.screenRect.x, y: rect.y - this.screenRect.y, width: rect.width, height: rect.height};
     }
@@ -179,7 +186,7 @@ class WindowManager {
     }
 
     sendInputToProcess(window, userInput) {
-        window.worker.postMessage({userInput});
+        window.process.worker.postMessage({userInput});
     }
 
     getWindow(pid) {
@@ -214,7 +221,10 @@ class WindowManager {
             }
         }
 
-        const {element} = win;
+        const {element, process} = win;
+        document.querySelectorAll(".dock-item").forEach((item) => item.classList.remove("focused"));
+        document.querySelector(`#dock-item-${process.pid}`).classList.add("focused");
+
         if (element.style.zIndex < this.maxZIndex) {
             element.style.zIndex = ++this.maxZIndex;
         }
@@ -228,12 +238,8 @@ class WindowManager {
         if (this.focusedWindow != null) {
             this.focusedWindow.element.classList.remove(CLASS_FOCUSED);
             this.focusedWindow = null;
+            document.querySelectorAll(".dock-item").forEach((item) => item.classList.remove("focused"));
         }
-    }
-    
-    focusWindowByPid(pid) {
-        const window = this.getWindow(pid);
-        this.focusWindow(window);
     }
 
     clearResize() {
@@ -246,7 +252,7 @@ class WindowManager {
 
     setHoveredResize(anchor, window) {
         const className = CURSOR_RESIZE_CLASS_NAMES[anchor];
-        console.assert(className != undefined);
+        assert(className != undefined);
 
         this.clearResize();
         this.screenArea.classList.add(className);
@@ -258,7 +264,6 @@ class WindowManager {
         for (let i = 0; i < 100; i ++) {
             const match = template.match(regex);
             if (match == null) {
-                console.log("RENDERED: ", template);
                 return template;
             }
 
@@ -277,6 +282,7 @@ class WindowManager {
     }
 
     positionNewWindow(width, height) {
+
         const frontMost = this.getFrontMostWindow();
         if (frontMost && frontMost.element.style && frontMost.element.style.left) {
             const offset = 25;
@@ -295,7 +301,7 @@ class WindowManager {
         const doc = await this.fetchAndRenderTemplate("/kernel/window-template.html", {pid, title, width, height});
 
         const winElement = doc.querySelector('.program-window');
-        const win = {element: winElement, worker: proc.worker}
+        const win = {element: winElement, process: proc};
 
         const canvasWrapper = winElement.querySelector(".canvas-wrapper");
         const canvas = winElement.querySelector("canvas");
@@ -399,14 +405,31 @@ class WindowManager {
         winElement.style.left = position[0];
         winElement.style.top = position[1];
     
-        this.focusWindow(win);
+        
 
         this.windows[pid] = win;
         console.log("Added window. ", this.windows);
 
+
+        const dockItem = document.createElement("div");
+        dockItem.id = `dock-item-${pid}`;
+        dockItem.classList.add("dock-item");
+        dockItem.innerText = win.process.programName;
+        dockItem.addEventListener("mousedown", (event) => {
+            this.focusWindow(this.windows[pid]);
+
+             // Prevent window manager from taking focus from the window
+             event.stopPropagation();
+        });
+        this.dock.appendChild(dockItem);
+
+        this.focusWindow(win);
+
         const offscreenCanvas = canvas.transferControlToOffscreen();
         return offscreenCanvas;
     }
+
+
     
     removeWindowIfExists(pid) {
         const win = this.getWindow(pid);
@@ -414,6 +437,9 @@ class WindowManager {
             delete this.windows[pid];
             win.element.remove();
             console.log("Removed window. ", this.windows);
+
+            const dockItem = document.getElementById(`dock-item-${pid}`);
+            dockItem.remove();
         }
 
         this.focusFrontMostWindow();
