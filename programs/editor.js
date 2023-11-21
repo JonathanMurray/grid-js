@@ -58,7 +58,7 @@ class Editor {
     }
 
     visibleKey(key) {
-        this.text.insertCharInLine(key);
+        this.text.insertInLine(key);
     }
 
     backspace() {

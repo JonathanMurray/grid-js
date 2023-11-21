@@ -1,163 +1,5 @@
 "use strict";
 
-const EOT = "\x04";
-
-class Terminal {
-
-    static PROMPT = "> ";
-
-    constructor(canvas, shellWriterStreamId) {
-        this.text = new TextGrid(canvas);
-        this.canvas = canvas;
-        this.inputBuffer = "";
-        this.inputIndex = 0;
-        this.shellWriterStreamId = shellWriterStreamId;
-
-        this.text.setTextStyle("blue");
-    }
-
-    resize(w, h) {
-        this.text.resize(w, h);
-    }
-
-    setTextStyle(style) {
-        this.text.setTextStyle(style);
-    }
-
-    setBackgroundStyle(style) {
-        this.text.setBackgroundStyle(style);
-    }
-
-    handleEvent(name, event) {
-        if (name == "keydown") {
-            const key = event.key;
-            if(event.ctrlKey && key == "c") {
-                this.ctrlC();
-            } else if(event.ctrlKey && key == "d") {
-                this.ctrlD();  
-            } else if (key == "Backspace") {
-                this.backspace();
-            } else if (key == "Enter") {
-                this.submitLine();
-            } else if (key == "ArrowLeft") {
-                this.moveLeft();
-            } else if (key == "ArrowRight") {
-                this.moveRight();
-            } else if (key == "Home") {
-                this.moveToStartOfLine();
-            } else if (key == "End") {
-                this.moveToEndOfLine();
-            } else if (key.length == 1) {
-                this.insertKey(key);
-            }
-
-            this.text.draw();
-        }
-    }
-
-    insertKey(key) {
-        this.text.insertCharInLine(key);
-        
-        this.inputBuffer = this.inputBuffer.slice(0, this.inputIndex) + key + this.inputBuffer.slice(this.inputIndex);
-        this.inputIndex ++;
-    }
-
-    backspace() {
-        if (this.text.cursorChar > Terminal.PROMPT.length) {
-            this.text.eraseInLine();
-        }
-
-        if (this.inputIndex > 0) {
-            this.inputBuffer = this.inputBuffer.slice(0, this.inputIndex - 1) + this.inputBuffer.slice(this.inputIndex);
-            this.inputIndex --;
-        }
-    }
-
-    printOutput(text) {
-        let newlineIndex = text.indexOf("\n");
-        while (newlineIndex >= 0) {
-            let line = text.slice(0, newlineIndex);
-            this.appendToLastLine(line);
-            this.pushNewLine();
-            text = text.slice(newlineIndex + 1);
-            newlineIndex = text.indexOf("\n");
-        }
-        this.appendToLastLine(text);
-        this.text.cursorChar = this.text.lines[this.text.lines.length - 1].length;
-        this.text.draw();
-    }
-
-    appendToLastLine(str) {
-        this.text.lines[this.text.lines.length - 1] = this.text.lines[this.text.lines.length - 1] + str;   
-    }
-
-    printPrompt() {
-        this.appendToLastLine(Terminal.PROMPT);
-        this.text.cursorChar = Terminal.PROMPT.length;
-        this.text.draw();
-    }
-
-    pushNewLine() {
-        this.text.lines.push("");
-        this.text.cursorLine ++;
-        this.text.cursorChar = 0;
-    }
-
-    ctrlC() {
-        this.printOutput("^C\n");
-        this.printPrompt();
-
-        this.inputBuffer = "";
-        this.inputIndex = 0;
-    }
-
-    async ctrlD() {
-        this.printOutput("^D\n");
-        await write(EOT, this.shellWriterStreamId);
-    }
-
-    async submitLine() {
-        this.pushNewLine();
-        await writeln(this.inputBuffer, this.shellWriterStreamId);
-        this.inputBuffer = "";
-        this.inputIndex = 0;
-    }
-
-    moveRight() {
-        if (this.text.cursorChar < this.text.lines[this.text.lines.length - 1].length) {
-            this.text.cursorChar ++;
-        }
-
-        this.inputIndex = Math.min(this.inputIndex + 1, this.inputBuffer.length);
-    }
-
-    moveLeft() {
-        if (this.text.cursorChar > Terminal.PROMPT.length) {
-            this.text.cursorChar --;
-        }
-
-        this.inputIndex = Math.max(this.inputIndex - 1, 0);
-    }
-
-    moveToStartOfLine() {
-        this.text.cursorChar = Terminal.PROMPT.length;
-        this.inputIndex = 0;
-    }
-
-    moveToEndOfLine() {
-        this.text.moveToEndOfLine();
-        this.inputIndex = this.inputBuffer.length - 1;
-    }
-
-    clear() {
-        this.inputBuffer = "";
-        this.inputIndex = 0;
-        this.text.clear();
-    }
-
-}
-
-
 async function main(args) {
 
     const window = await stdlib.createWindow("Terminal", [500, 400]);
@@ -165,65 +7,150 @@ async function main(args) {
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
 
-    const {masterReaderId: terminalPtyReader, masterWriterId: terminalPtyWriter, slaveReaderId: shellReader, slaveWriterId: shellWriter} = 
-        await syscall("createPseudoTerminal");
+    const pty = await syscall("createPseudoTerminal");
+    const terminalPtyReader = pty.master.in;
+    const terminalPtyWriter = pty.master.out;
+    const shellStdin = pty.slave.in;
+    const shellStdout = pty.slave.out;
 
-    const terminal = new Terminal(window.canvas, terminalPtyWriter);
+    const textGrid = new TextGrid(window.canvas);
     
     let shellPid;
 
     await syscall("handleInterruptSignal");
 
     try {
-        shellPid = await syscall("spawn", {program: "shell", streamIds: [shellReader, shellWriter],
+        shellPid = await syscall("spawn", {program: "shell", streamIds: [shellStdin, shellStdout],
                                  pgid: "START_NEW"});
 
         const shellPgid = shellPid; // The shell is process group leader
         await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: shellPgid});
 
-        window.onkeydown = (event) => {
-            if (event.ctrlKey && event.key == "c") { 
-                const pgid = shellPid; // The shell is process group leader
-                syscall("getForegroundProcessGroupOfPseudoTerminal").then((pgid) => {
-                    syscall("sendSignal", {signal: "interrupt", pgid});
-                })
-            } 
-
-            terminal.handleEvent("keydown", event);
-        };
-
+        
         window.onresize = (event) => {
-            terminal.resize(event.width, event.height);
+            textGrid.resize(event.width, event.height);
         }
+
+        window.onkeydown = (event) => {
+            const key = event.key;
+
+            let sequence;
+    
+            if (event.ctrlKey && key == "c") {
+                sequence = ASCII_END_OF_TEXT;
+            } else if(event.ctrlKey && key == "d") {
+                sequence = ASCII_END_OF_TRANSMISSION;
+            } else if (key == "Backspace") {
+                sequence = ASCII_BACKSPACE;
+            } else if (key == "ArrowUp") {
+                sequence = ANSI_CURSOR_UP;
+            } else if (key == "ArrowDown") {
+                sequence = ANSI_CURSOR_DOWN;
+            } else if (key == "ArrowRight") {
+                sequence = ANSI_CURSOR_FORWARD;
+            } else if (key == "ArrowLeft") {
+                sequence = ANSI_CURSOR_BACK;
+            } else if (key == "Home") {
+                sequence = ASCII_CARRIAGE_RETURN;
+            } else if (key == "End") {
+                sequence = ANSI_CURSOR_END_OF_LINE;
+            } else if (key == "Enter") {
+                sequence = "\n";     
+            } else if (key == "Shift") {
+                sequence = null;
+            } else if (key.length > 1) {
+                console.log("Unhandled key in terminal: ", key);
+                sequence = null;
+            } else {
+                sequence = key;
+            }
+    
+            if (sequence != null) {
+                write(sequence, terminalPtyWriter);
+            }
+        };
     
         while (true) {
             let text = await syscall("read", {streamId: terminalPtyReader});
 
-            let escapeIndex = text.indexOf("\x1B");
-            while (escapeIndex >= 0) {
-                const before = text.slice(0, escapeIndex);
-                terminal.printOutput(before);
+            while (text != "") {
                 
-                const commandLen = text.slice(escapeIndex + 1, escapeIndex + 2).charCodeAt(0);
-                let command = text.slice(escapeIndex + 2, escapeIndex + 2 + commandLen);
-                command = JSON.parse(command);
-                if ("setTextStyle" in command) {
-                    terminal.setTextStyle(command.setTextStyle);
-                } else if ("setBackgroundStyle" in command) {
-                    terminal.setBackgroundStyle(command.setBackgroundStyle);
-                } else if ("printPrompt" in command){
-                    terminal.printPrompt();
-                } else if ("clear" in command) {
-                    terminal.clear();
-                } else {
-                    console.error("Unhandled terminal command: ", command);
-                }
+                let matched;
 
-                text = text.slice(escapeIndex + 2 + commandLen);
-                escapeIndex = text.indexOf("\x1B");
-            } 
-           
-            terminal.printOutput(text);
+                if (text[0] == ASCII_BACKSPACE) {
+                    if (textGrid.cursorChar > 0) {
+                        textGrid.eraseInLine();
+                    }
+                    matched = 1;
+                } else if (text[0] == "\n") {
+                    textGrid.lines.push("");
+                    textGrid.cursorLine ++;
+                    textGrid.cursorChar = 0;
+                    matched = 1;
+                } else if (text[0] == ASCII_CARRIAGE_RETURN) {
+                    textGrid.moveToStartOfLine();
+                    matched = 1;
+                } else if (text.startsWith(ANSI_CSI)) {
+
+                    let args = [];
+                    let numberString = "";
+                    let i = ANSI_CSI.length;
+                    while(true) {
+                        if ("0123456789".includes(text[i])) {
+                            numberString += text[i];
+                        } else {
+                            args.push(Number.parseInt(numberString));
+                            numberString = "";
+                            if (text[i] != ";") {
+                                break;
+                            }
+                        } 
+                        i++;
+                    }
+                    const ansiFunction = text[i];
+
+                    if (ansiFunction == "C") {
+                        if (textGrid.cursorChar < textGrid.lines[textGrid.lines.length - 1].length) {
+                            textGrid.cursorChar ++;
+                        }
+                        matched = i + 1;
+                    } else if (ansiFunction == "D") {
+                        if (textGrid.cursorChar > 0) {
+                            textGrid.cursorChar --;
+                        }
+                        matched = i + 1;
+                    } else if (ansiFunction == "G") {
+                        textGrid.moveToColumnIndex(args[0] - 1);
+                        matched = i + 1;
+                    } else if (ansiFunction == "X") {
+                        const commandLen = args[0];
+                        let command = text.slice(i + 1, i + 1 + commandLen);
+                        command = JSON.parse(command);
+                        if ("setTextStyle" in command) {
+                            textGrid.setTextStyle(command.setTextStyle);
+                        } else if ("setBackgroundStyle" in command) {
+                            textGrid.setBackgroundStyle(command.setBackgroundStyle);
+                        } else if ("printPrompt" in command){
+                            terminal.printPrompt();
+                        } else if ("clear" in command) {
+                            terminal.clear();
+                        } else {
+                            console.error("Unhandled terminal command: ", command);
+                        }
+
+                        matched = i + 1 + commandLen;
+                    } else {
+                        assert(false, `Unhandled ansi function: '${ansiFunction}`);
+                    }
+                } else {
+                    textGrid.insertInLine(text[0]);
+                    matched = 1;
+                } 
+
+                text = text.slice(matched);
+
+                textGrid.draw();
+            }
         }
     } catch (error) {
 

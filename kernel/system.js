@@ -1,7 +1,5 @@
 "use strict";
 
-const EOT = "\x04";
-
 class TextFile {
     constructor(text) {
         this.text = text;
@@ -264,12 +262,6 @@ class System {
         return procs;
     }
 
-    createPseudoTerminal(sid) {
-        const pty = new PseudoTerminal();
-        this.pseudoTerminals[sid] = pty;
-        return pty;
-    }
-
     procOpenFile(proc, fileName, createIfNecessary) {
         let file = this.files[fileName];
         if (file == undefined) {
@@ -334,6 +326,33 @@ class System {
         }
         return this.processes[pid];
     }
+
+    createPseudoTerminal(proc) {
+        if (proc.pid != proc.sid) {
+            throw new SysError("only session leader can create a pseudoterminal")
+        }
+        if (proc.pid != proc.pgid) {
+            throw new SysError("only process group leader can create a pseudoterminal")
+        }
+
+        const pty = new PseudoTerminal(this);
+        this.pseudoTerminals[proc.sid] = pty;
+
+        const masterIn = proc.addStream(new PipeReader(pty.pipeToMaster));
+        const masterOut = proc.addStream(pty.masterWriter);
+        const slaveIn = proc.addStream(new PipeReader(pty.pipeToSlave));
+        const slaveOut = proc.addStream(pty.slaveWriter);
+
+        return {master: {in: masterIn, out: masterOut}, slave: {in: slaveIn, out: slaveOut}};
+    }
+
+    configurePseudoTerminal(proc, config) {
+        const pty = this.pseudoTerminals[proc.sid];
+        if (pty == undefined) {
+            throw new SysError("no pseudoterminal connected to session");
+        }
+        pty.configure(config);
+    }
 }
 
 const InterruptSignalBehaviour = {
@@ -343,213 +362,6 @@ const InterruptSignalBehaviour = {
 };
 
 
-class PseudoTerminal {
-    // Pseudoterminal a.k.a. PTY is used for IO between the terminal and the shell.
-    // https://man7.org/linux/man-pages/man7/pty.7.html
-    // https://unix.stackexchange.com/questions/117981/what-are-the-responsibilities-of-each-pseudo-terminal-pty-component-software
-    constructor() {
-        this.foreground_pgid = null;
-        this.masterToSlave = new Pipe();
-        this.slaveToMaster = new Pipe();
-    }
-
-    setForegroundPgid(pgid) {
-        this.foreground_pgid = pgid;
-        this.masterToSlave.setRestrictReadsToProcessGroup(pgid);
-    }
-}
-
-class Pipe {
-    constructor() {
-        this.buffer = "";
-        this.waitingReaders = [];
-        this.restrictReadsToProcessGroup = null;
-        this.numReaders = 1;
-        this.numWriters = 1;
-    }
-
-    onReaderClose() {
-        this.numReaders --;
-        assert(this.numReaders >= 0);
-    }
-
-    onWriterClose() {
-        this.numWriters --;
-        assert(this.numWriters >= 0);
-        if (this.numWriters == 0) {
-            this.buffer += EOT; // This will signal end of stream to anyone reading it
-        }
-    }
-    
-    onReaderDuplicate() {
-        assert(this.numReaders > 0); // one must already exist, for duplication 
-        this.numReaders ++;
-    }
-
-    onWriterDuplicate() {
-        assert(this.numWriters > 0); // one must already exist, for duplication 
-        this.numWriters ++;
-    }
-
-    setRestrictReadsToProcessGroup(pgid) {
-        this.restrictReadsToProcessGroup = pgid;
-        while (this.handleWaitingReaders()) {}
-    }
-    
-    isProcAllowedToRead(proc) {
-        return this.restrictReadsToProcessGroup == null || this.restrictReadsToProcessGroup == proc.pgid;
-    }
-
-    requestRead({reader, proc}) {
-        assert(this.numReaders > 0);
-        this.waitingReaders.push({reader, proc});
-        this.handleWaitingReaders();
-    }
-    
-    requestWrite(writer) {
-        assert(this.numWriters > 0);
-        if (this.numReaders == 0) {
-            writer("read-end is closed");
-            return;
-        }
-
-        const text = writer();
-        this.buffer += text;
-        this.handleWaitingReaders();
-    }
-
-    handleWaitingReaders() {
-
-        if (this.buffer.length > 0) {
-            if (this.waitingReaders.length > 0) {
-                for (let i = 0; i < this.waitingReaders.length;) {
-                    const {reader, proc} = this.waitingReaders[i];
-                    if (proc.exitValue != null) {
-                        // The process will never be able to read
-                        this.waitingReaders.splice(i, 1);
-                    } else if (this.isProcAllowedToRead(proc)) {
-                        this.waitingReaders.splice(i, 1);
-                        // Check that a read actually occurs. This is necessary because of readAny()
-                        if (reader({text: this.buffer})) {
-                            this.buffer = "";
-                            return true; 
-                        }
-                    } else {
-                        // The reader was left in the list, and we move onto the next one
-                        i++;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-}
-
-class PipeReader {
-    constructor(pipe) {
-        this.pipe = pipe;
-        this.isOpen = true;
-    }
-
-    requestRead({reader, proc}) {
-        assert(this.isOpen);
-        return this.pipe.requestRead({reader, proc});
-    }
-
-    requestWrite() {
-        throw new SysError("stream is not writable");
-    }
-    
-    close() {
-        if (this.isOpen) {
-            this.isOpen = false;
-            this.pipe.onReaderClose();
-        }
-    }
-
-    duplicate () {
-        assert(this.isOpen);
-        this.pipe.onReaderDuplicate();
-        return new PipeReader(this.pipe);
-    }
-}
-
-class PipeWriter {
-    constructor(pipe) {
-        this.pipe = pipe;
-        this.isOpen = true;
-    }
-
-    requestWrite(writer) {
-        assert(this.isOpen);
-        return this.pipe.requestWrite(writer);
-    }
-
-    requestRead() {
-        throw new SysError("stream is not readable");
-    }
-
-    close() {
-        if (this.isOpen) {
-            this.isOpen = false;
-            this.pipe.onWriterClose();
-        }
-    }
-
-    duplicate () {
-        assert(this.isOpen);
-        this.pipe.onWriterDuplicate();
-        return new PipeWriter(this.pipe);
-    }
-}
-
-class FileStream {
-    constructor(openFileDescription) {
-        this.openFileDescription = openFileDescription;
-        this.isOpen = true;
-    }
-
-    requestWrite(writer) {
-        assert(this.isOpen);
-        const text = writer();
-        this.openFileDescription.write(text);
-    }
-    
-    requestRead({reader, proc}) {
-        assert(this.isOpen);
-        const text = this.openFileDescription.read();
-        reader({text});
-    }
-
-    close() {
-        if (this.isOpen) {
-            this.isOpen = false;
-            this.openFileDescription.onStreamClose();
-        }
-    }
-
-    duplicate() {
-        assert(this.isOpen);
-        this.openFileDescription.onStreamDuplicate();
-        return new FileStream(this.openFileDescription);
-    }
-}
-
-class NullStream {
-    requestWrite(writer) {
-        writer(); // Whatever was written is discarded
-    }
-    
-    requestRead() {
-        // Will never read anything
-    }
-
-    close() {}
-
-    duplicate() {
-        return this;
-    }
-}
 
 class SysError extends Error {
     constructor(message) {

@@ -154,6 +154,11 @@ class WindowManager {
                 // default = save webpage
                 event.preventDefault();
             }
+
+            if (event.key == "d" && event.ctrlKey) {
+                // default = Chrome edit bookmark
+                event.preventDefault();
+            }
         
             if (event.key == "Control") {
                 // default = Chrome menu takes focus
@@ -316,7 +321,7 @@ class WindowManager {
 
     async createWindow(title, [width, height], proc, resizable) {
         const pid = proc.pid;
-        title = `[${pid}] ${title || "Untitled"}`
+        title = `${title} (pid=${pid})`
 
         const doc = await WindowManager.fetchAndRenderTemplate("/kernel/window-template.html", {pid, title, width, height});
 

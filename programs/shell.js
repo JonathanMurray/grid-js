@@ -1,6 +1,160 @@
 "use strict";
 
+const PROMPT = "> ";
+
 let backgroundedJobs = [];
+
+async function main(args) {
+
+    await stdlib.terminal.setTextStyle("#0F0");
+    await stdlib.terminal.setBackgroundStyle("black");
+    await writeln("Welcome. Type help to get started.");
+    await write(PROMPT);
+    
+    await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
+    let line = new TextWithCursor();
+    while (true) {
+        let received = await read();
+        while (received != "") {
+            let matched;
+            let echo = true;
+            if (received[0] == ASCII_BACKSPACE) {
+                echo = line.backspace();
+                matched = 1;
+            } else if (received[0] == "\n") {
+                await write("\n");
+                await handleInputLine(line.text);
+                line.reset();
+                echo = false;
+                await write(PROMPT);
+                matched = 1;
+            } else if (received[0] == ASCII_END_OF_TRANSMISSION) {
+                line.reset();
+                matched = 1;
+                echo = false;
+                await write("^D\n");
+            } else if (received[0] == ASCII_END_OF_TEXT) {
+                line.reset();
+                matched = 1;
+                echo = false;
+                await write(`^C\n${PROMPT}`);
+            } else if (received[0] == ASCII_CARRIAGE_RETURN) {
+                line.moveToStart();
+                echo = false;
+                await write(ansiSetCursorPosition(PROMPT.length + 1));
+                matched = 1;
+            } else if (received.startsWith(ANSI_CURSOR_BACK)) {
+                line.moveLeft();
+                echo = false;
+                await write(ansiSetCursorPosition(PROMPT.length + 1 + line.cursor));
+                matched = ANSI_CURSOR_BACK.length;
+            } else if (received.startsWith(ANSI_CURSOR_FORWARD)) {
+                line.moveRight();
+                matched = ANSI_CURSOR_FORWARD.length;
+            } else if (received.startsWith(ANSI_CURSOR_END_OF_LINE)) {
+                line.moveToEnd();
+                matched = ANSI_CURSOR_END_OF_LINE.length;
+            } else {
+                line.insert(received[0]);
+                matched = 1;
+            } 
+            if (echo) {
+                await write(received.slice(0, matched));
+            }
+            received = received.slice(matched);
+        }
+        
+    }
+}
+
+async function handleInputLine(input) {
+
+    const words = input.split(' ').filter(w => w !== '');
+
+    if (words.length == 0) {
+        return;
+    }
+
+    let parsed;
+    try {
+        parsed = await parse(input);
+    } catch (error) {
+        if (error instanceof ParseError) {
+            await writeln(`<${error.message}>`);
+            return;
+        }
+    }
+
+    const {builtin, pipeline} = parsed;
+
+    if (builtin) {
+        await builtins[builtin.name](builtin.args);
+    } else {
+        const {commands, runInBackground} = pipeline;
+
+        const shellStdin = 0;
+        const shellStdout = 1;
+        let pipedStdin;
+
+        let pgid = null;
+        let pids = [];
+        
+        for (let i = 0; i < commands.length; i++) {
+
+            let stdin;
+            let stdout;
+
+            if (i == 0) {
+                stdin = shellStdin;
+            } else {
+                console.assert(pipedStdin != undefined);
+                stdin = pipedStdin;
+            }
+
+            if (i == commands.length - 1) {
+                stdout = shellStdout;
+            } else {
+                const pipe = await syscall("createPipe");
+                pipedStdin = pipe.readerId;
+                stdout = pipe.writerId;
+            }
+
+            const {program, args} = commands[i];
+
+            if (i == 0) {
+                // The first process in the pipeline becomes process group leader.
+                pgid = "START_NEW";
+            }
+
+            const pid = await syscall("spawn", {program, args, streamIds: [stdin, stdout], pgid});
+
+            // Once a stream has been duplicated in the child, we should close our version, to ensure
+            // correct pipe behaviour when the child closes their version.
+            // https://man7.org/linux/man-pages/man7/pipe.7.html
+            if (stdin != shellStdin) {
+                await syscall("closeStream", {streamId: stdin});
+            }
+            if (stdout != shellStdout) {
+                await syscall("closeStream", {streamId: stdout});
+            }
+
+            pids.push(pid);
+
+            if (i == 0) {
+                // All remaining processes in the pipeline join the newly created process group.
+                pgid = pid;
+            }
+        }
+        
+        const job = {pgid, pids};
+        if (runInBackground) {
+            backgroundedJobs.push(job);
+        } else {
+            await runJobInForeground(job);
+        }
+    }
+}
+
 
 const builtins = {
     help: async function(args) {
@@ -73,6 +227,10 @@ const builtins = {
 }
 
 async function runJobInForeground(job) {
+
+    // Programs we spawn expect the terminal to be in line mode. If they want raw mode, they will configure it.
+    await syscall("configurePseudoTerminal", {mode: "LINE"});
+
     // Give the terminal to the new foreground group
     await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: job.pgid});
     const lastPid = job.pids.slice(-1)[0];
@@ -87,6 +245,7 @@ async function runJobInForeground(job) {
    
     // Reclaim the terminal
     await syscall("setForegroundProcessGroupOfPseudoTerminal", {toSelf: true});
+    await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
 }
 
 async function parse(line) {
@@ -145,114 +304,6 @@ async function parse(line) {
     }
 
     return {pipeline, builtin};
-}
-
-async function main(args) {
-
-    // The shell shouldn't be killed by ctrl-C when in the foreground
-    await syscall("ignoreInterruptSignal");
-
-    await stdlib.terminal.setTextStyle("#0F0");
-    await stdlib.terminal.setBackgroundStyle("black");
-
-    await writeln("Welcome. Type help to get started.");
-
-    while (true) {
-        await stdlib.terminal.printPrompt();
-
-        const input = await readln();
-        
-        if (input == null) {
-            // End of stream
-            break;
-        }
-
-        const words = input.split(' ').filter(w => w !== '');
-
-        if (words.length == 0) {
-            continue;
-        }
-
-        let parsed;
-        try {
-            parsed = await parse(input);
-        } catch (error) {
-            if (error instanceof ParseError) {
-                await writeln(`<${error.message}>`);
-                continue;
-            }
-        }
-        //await writeln(`Parsed: ${JSON.stringify(parsed)}`);
-
-        const {builtin, pipeline} = parsed;
-
-        if (builtin) {
-            await builtins[builtin.name](builtin.args);
-        } else {
-            const {commands, runInBackground} = pipeline;
-
-            const shellStdin = 0;
-            const shellStdout = 1;
-            let pipedStdin;
-
-            let pgid = null;
-            let pids = [];
-            
-            for (let i = 0; i < commands.length; i++) {
-    
-                let stdin;
-                let stdout;
-    
-                if (i == 0) {
-                    stdin = shellStdin;
-                } else {
-                    console.assert(pipedStdin != undefined);
-                    stdin = pipedStdin;
-                }
-    
-                if (i == commands.length - 1) {
-                    stdout = shellStdout;
-                } else {
-                    const pipe = await syscall("createPipe");
-                    pipedStdin = pipe.readerId;
-                    stdout = pipe.writerId;
-                }
-
-                const {program, args} = commands[i];
-
-                if (i == 0) {
-                    // The first process in the pipeline becomes process group leader.
-                    pgid = "START_NEW";
-                }
-                
-                const pid = await syscall("spawn", {program, args, streamIds: [stdin, stdout], pgid});
-
-                // Once a stream has been duplicated in the child, we should close our version, to ensure
-                // correct pipe behaviour when the child closes their version.
-                // https://man7.org/linux/man-pages/man7/pipe.7.html
-                if (stdin != shellStdin) {
-                    await syscall("closeStream", {streamId: stdin});
-                }
-                if (stdout != shellStdout) {
-                    await syscall("closeStream", {streamId: stdout});
-                }
-
-                pids.push(pid);
-
-                if (i == 0) {
-                    // All remaining processes in the pipeline join the newly created process group.
-                    pgid = pid;
-                }
-            }
-            
-            const job = {pgid, pids};
-            if (runInBackground) {
-                backgroundedJobs.push(job);
-            } else {
-                await runJobInForeground(job);
-            }
-        }
-    }
 }
 
 class ParseError extends Error {

@@ -29,20 +29,11 @@ class Syscalls {
     }
 
     createPseudoTerminal(proc, args) {
-        if (proc.pid != proc.sid) {
-            throw new SysError("only session leader can create a pseudoterminal")
-        }
-        if (proc.pid != proc.pgid) {
-            throw new SysError("only process group leader can create a pseudoterminal")
-        }
-        const pty = this.system.createPseudoTerminal(proc.sid);
+        return this.system.createPseudoTerminal(proc);
+    }
 
-        const masterReaderId = proc.addStream(new PipeReader(pty.slaveToMaster));
-        const masterWriterId = proc.addStream(new PipeWriter(pty.masterToSlave));
-        const slaveReaderId = proc.addStream(new PipeReader(pty.masterToSlave));
-        const slaveWriterId = proc.addStream(new PipeWriter(pty.slaveToMaster));
-
-        return {masterReaderId, masterWriterId, slaveReaderId, slaveWriterId};
+    configurePseudoTerminal(proc, args) {
+        return this.system.configurePseudoTerminal(proc, args);
     }
 
     setForegroundProcessGroupOfPseudoTerminal(proc, args) {
