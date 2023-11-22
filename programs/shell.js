@@ -3,6 +3,7 @@
 const PROMPT = "> ";
 
 let backgroundedJobs = [];
+let history;
 
 async function main(args) {
 
@@ -12,50 +13,80 @@ async function main(args) {
     await write(PROMPT);
     
     await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
-    let line = new TextWithCursor();
+    
+    let currentLine = new TextWithCursor();
+    history = new History();
     while (true) {
         let received = await read();
         while (received != "") {
             let matched;
             let echo = true;
             if (received[0] == ASCII_BACKSPACE) {
-                echo = line.backspace();
+                echo = currentLine.backspace();
                 matched = 1;
             } else if (received[0] == "\n") {
                 await write("\n");
-                await handleInputLine(line.text);
-                line.reset();
+                history.onEnter(currentLine.text);
+                await handleInputLine(currentLine.text);
+                currentLine.reset();
                 echo = false;
                 await write(PROMPT);
                 matched = 1;
             } else if (received[0] == ASCII_END_OF_TRANSMISSION) {
-                line.reset();
+                currentLine.reset();
                 matched = 1;
                 echo = false;
                 await write("^D\n");
             } else if (received[0] == ASCII_END_OF_TEXT) {
-                line.reset();
+                currentLine.reset();
                 matched = 1;
                 echo = false;
                 await write(`^C\n${PROMPT}`);
+                history.clearSelection();
             } else if (received[0] == ASCII_CARRIAGE_RETURN) {
-                line.moveToStart();
+                currentLine.moveToStart();
                 echo = false;
                 await write(ansiSetCursorPosition(PROMPT.length + 1));
                 matched = 1;
             } else if (received.startsWith(ANSI_CURSOR_BACK)) {
-                line.moveLeft();
+                currentLine.moveLeft();
                 echo = false;
-                await write(ansiSetCursorPosition(PROMPT.length + 1 + line.cursor));
+                await write(ansiSetCursorPosition(PROMPT.length + 1 + currentLine.cursor));
                 matched = ANSI_CURSOR_BACK.length;
             } else if (received.startsWith(ANSI_CURSOR_FORWARD)) {
-                line.moveRight();
+                currentLine.moveRight();
                 matched = ANSI_CURSOR_FORWARD.length;
             } else if (received.startsWith(ANSI_CURSOR_END_OF_LINE)) {
-                line.moveToEnd();
+                currentLine.moveToEnd();
                 matched = ANSI_CURSOR_END_OF_LINE.length;
+            } else if (received.startsWith(ANSI_CURSOR_UP)) {
+                echo = false;
+                const selectedLine = history.onCursorUp();
+                const prefix = `${ANSI_ERASE_ENTIRE_LINE}${ASCII_CARRIAGE_RETURN}${PROMPT}`;
+                if (selectedLine != null) {
+                    currentLine.text = selectedLine;
+                    currentLine.moveToEnd();
+                    await write(`${prefix}${selectedLine}`);
+                } else {
+                    currentLine.reset();
+                    await write(prefix);
+                }
+                matched = ANSI_CURSOR_UP.length;
+            } else if (received.startsWith(ANSI_CURSOR_DOWN)) {
+                echo = false;
+                const selectedLine = history.onCursorUp();
+                const prefix = `${ANSI_ERASE_ENTIRE_LINE}${ASCII_CARRIAGE_RETURN}${PROMPT}`;
+                if (selectedLine != null) {
+                    currentLine.text = selectedLine;
+                    currentLine.moveToEnd();
+                    await write(`${prefix}${selectedLine}`);
+                } else {
+                    currentLine.reset();
+                    await write(prefix);
+                }
+                matched = ANSI_CURSOR_DOWN.length;
             } else {
-                line.insert(received[0]);
+                currentLine.insert(received[0]);
                 matched = 1;
             } 
             if (echo) {
@@ -223,6 +254,12 @@ const builtins = {
         } else {
             await writeln("<no background processes>");
         }
+    },
+
+    history: async function(args) {
+        for (let i = 0; i < history.lines.length; i++) {
+            await writeln(`${i + 1}: ${history.lines[i]}`);
+        }
     }
 }
 
@@ -310,5 +347,53 @@ class ParseError extends Error {
     constructor(message) {
         super(message);
         this.name = "ParseError";
+    }
+}
+
+class History {
+    constructor() {
+        this.lines = [];
+        this.selected = null;
+    }
+
+    onEnter(line) {
+        if (line != "") {
+            this.lines.push(line);
+        }
+        this.selected = null;
+    }
+    
+    clearSelection() {
+        this.selected = null;
+    }
+
+    onCursorUp() {
+        if (this.selected != null) {
+            this.selected -= 1;
+        } else {
+            this.selected = this.lines.length - 1;
+        }
+        if (this.selected >= 0) {
+            const line = this.lines[this.selected];
+            return line;
+        } else {
+            this.selected = null;
+            return null;
+        }
+    }
+
+    onCursorDown() {
+        if (this.selected != null) {
+            this.selected += 1;
+        } else {
+            this.selected = 0;
+        }
+        if (this.selected < this.lines.length) {
+            const line = this.lines[this.selected];
+            return line;
+        } else {
+            this.selected = null;
+            return null;
+        }
     }
 }

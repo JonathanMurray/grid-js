@@ -139,6 +139,8 @@ class System {
             // Syscall implementations that try to destructure args crash otherwise
             args = {};
         }
+
+        proc.syscallCount += 1;
         
         return await this.syscalls[syscall](proc, args);
     }
@@ -190,7 +192,7 @@ class System {
         }).catch((error) => {
             if (pid in this.processes) {
                 if (error instanceof SysError || error.name == "ProcessInterrupted" || error.name == "SysError") {
-                    console.warn(pid, `${syscall}(${JSON.stringify(arg)}) --> `, error);
+                    console.debug(pid, `${syscall}(${JSON.stringify(arg)}) --> `, error);
                 } else {
                     console.error(pid, `${syscall}(${JSON.stringify(arg)}) --> `, error);
                 }
@@ -257,7 +259,8 @@ class System {
         let procs = [];
         for (let pid of Object.keys(this.processes)) {
             const proc = this.process(pid);
-            procs.push({pid, sid: proc.sid, ppid: proc.ppid, programName: proc.programName, pgid: proc.pgid, exitValue: proc.exitValue});
+            procs.push({pid, sid: proc.sid, ppid: proc.ppid, programName: proc.programName, pgid: proc.pgid, exitValue: proc.exitValue, 
+                syscallCount: proc.syscallCount});
         }
         return procs;
     }
@@ -364,8 +367,9 @@ const InterruptSignalBehaviour = {
 
 
 class SysError extends Error {
-    constructor(message) {
+    constructor(message, errno) {
         super(message);
         this.name = "SysError";
+        this.errno = errno;
     }
 }

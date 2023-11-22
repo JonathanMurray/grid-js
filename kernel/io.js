@@ -1,8 +1,11 @@
 const PseudoTerminalMode = {
-    // character / raw mode
+    /** raw mode */
     CHARACTER: "CHARACTER",
 
-    // line / cooked mode
+    /** like raw mode, except that sigint is handled */
+    CHARACTER_AND_SIGINT: "CHARACTER_AND_SIGINT",
+
+    /** cooked mode */
     LINE: "LINE"
 }
 
@@ -21,17 +24,16 @@ class PseudoTerminal {
         this.masterWriter = {
             requestWrite: (writer) => {
                 let text = writer();
-                console.log("Text from master: ", text);
                 if (this._mode == PseudoTerminalMode.LINE) {
                     this.lineDiscipline.handleTextFromMaster(text);
-                } else {
+                } else if (this._mode == PseudoTerminalMode.CHARACTER) {
                     this.pipeToSlave.requestWrite(this._createInfallibleWriter(text));
-                    /*
+                } else {
                     let buf = "";
-                    while (text != "") {
+                    while (text.length > 0) {
                         if (text[0] == ASCII_END_OF_TEXT) {
-                            if(buf != "") {
-                                this.pipeToSlave.requestWrite(this._createInfallibleWriter(text));
+                            if (buf.length > 0) {
+                                this.pipeToSlave.requestWrite(this._createInfallibleWriter(buf));
                                 buf = "";
                             }
                             this.ctrlC();
@@ -40,10 +42,6 @@ class PseudoTerminal {
                         }
                         text = text.slice(1);
                     }
-                    if(buf != "") {
-                        this.pipeToSlave.requestWrite(this._createInfallibleWriter(text));
-                    }
-                    */
                 }
             }
         }
@@ -195,8 +193,24 @@ class Pipe {
         return this.restrictReadsToProcessGroup == null || this.restrictReadsToProcessGroup == proc.pgid;
     }
 
-    requestRead({reader, proc}) {
+    requestRead({reader, proc, nonBlocking}) {
         assert(this.numReaders > 0);
+        
+        if (nonBlocking) {
+            if (this.buffer.length > 0) {
+                if (this.isProcAllowedToRead(proc)) {
+                    if (reader({text: this.buffer})) {
+                        this.buffer = "";
+                    }
+                } else {
+                    reader({error: {name: "SysError", message: "not allowed to read", errno: Errno.WOULDBLOCK}});
+                }
+            } else {
+                reader({error: {name: "SysError", message: "nothing available", errno: Errno.WOULDBLOCK}});
+            }
+            return;
+        }
+
         this.waitingReaders.push({reader, proc});
         this.handleWaitingReaders();
     }
@@ -246,9 +260,9 @@ class PipeReader {
         this.isOpen = true;
     }
 
-    requestRead({reader, proc}) {
+    requestRead(args) {
         assert(this.isOpen);
-        return this.pipe.requestRead({reader, proc});
+        return this.pipe.requestRead(args);
     }
 
     requestWrite() {
@@ -310,7 +324,7 @@ class FileStream {
         this.openFileDescription.write(text);
     }
     
-    requestRead({reader, proc}) {
+    requestRead({reader}) {
         assert(this.isOpen);
         const text = this.openFileDescription.read();
         reader({text});

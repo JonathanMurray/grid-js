@@ -114,8 +114,8 @@ class Syscalls {
     }
 
     read(proc, args) {
-        const {streamId} = validateSyscallArgs(args, ["streamId"]);
-        return proc.read(streamId);
+        const {streamId, nonBlocking} = validateSyscallArgs(args, ["streamId"], ["nonBlocking"]);
+        return proc.read(streamId, nonBlocking);
     }
 
     openFile(proc, args) {

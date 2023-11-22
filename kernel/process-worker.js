@@ -36,7 +36,6 @@ function sandbox(code, args) {
             callbacks.resolve = resolve;
             callbacks.reject = reject;
         });
-        console.debug("created syscall promise...");
         
         try {
             return await result;
@@ -45,6 +44,7 @@ function sandbox(code, args) {
             const newError = new Error(e.message);
             newError.name = e.name;
             newError.cause = e;
+            newError.errno = e.errno;
             throw newError;
         }
     }
@@ -73,6 +73,7 @@ function sandbox(code, args) {
 
             const regex = /\((.+):(.+):(.+)\)/;
             for (let stackLine of stackLines) {
+                console.log("STACK LINE: ", stackLine);
                 const match = stackLine.match(regex);
                 if (match) {
                     const fileName = match[1];

@@ -28,6 +28,9 @@ class Process {
 
         this.interruptSignalBehaviour = InterruptSignalBehaviour.EXIT;
 
+        // Historic count, useful for getting a sense of how busy a process is
+        this.syscallCount = 0;
+
         this.nextPromiseId = 1;
         this.syscallHandles = {};
     }
@@ -101,7 +104,7 @@ class Process {
         return promise;
     }
 
-    read(streamId) {
+    read(streamId, nonBlocking) {
         const inputStream = this.streams[streamId];
         assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
         const {promise, promiseId} = this.promise();
@@ -113,39 +116,13 @@ class Process {
             const didRead = this.resolvePromise(promiseId, text);
             return didRead;
         }
-        inputStream.requestRead({reader, proc: this});
+        inputStream.requestRead({reader, proc: this, nonBlocking});
         return promise;
     }
 
     closeStream(streamId) {
         this.streams[streamId].close();
     }
-
-    /*
-    readAny(streamIds) {
-        const {promise, promiseId} = this.promise();
-        let hasResolvedPromise = false;
-
-        const self = this;
-        for (let streamId of streamIds) {
-            const inputStream = this.streams[streamId];
-            assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
-
-            const reader = (text) => {
-                if (hasResolvedPromise) {
-                    return false; // signal that we ended up not reading 
-                }
-    
-                hasResolvedPromise = this.resolvePromise(promiseId, {text, streamId});
-                return hasResolvedPromise;
-            };
-
-            inputStream.requestRead({reader, proc: this});
-        }
-
-        return promise;
-    }
-    */
 
     addStream(stream) {
         const streamId = this.nextStreamId ++;
