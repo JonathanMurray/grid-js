@@ -24,7 +24,7 @@ const CANVAS_SCALE = window.devicePixelRatio; // Change to 1 on retina screens t
 class WindowManager {
 
     static async init(launchProgram) {
-        const doc = await WindowManager.fetchAndRenderTemplate("/kernel/screen-area.html");
+        const doc = await WindowManager.fetchAndRenderTemplate("kernel/screen-area.html");
         const screenArea = doc.querySelector("#screen-area");
         document.querySelector("body").appendChild(screenArea);
         return new WindowManager(screenArea, launchProgram);
@@ -323,7 +323,7 @@ class WindowManager {
         const pid = proc.pid;
         title = `${title} (pid=${pid})`
 
-        const doc = await WindowManager.fetchAndRenderTemplate("/kernel/window-template.html", {pid, title, width, height});
+        const doc = await WindowManager.fetchAndRenderTemplate("kernel/window-template.html", {pid, title, width, height});
 
         const winElement = doc.querySelector('.program-window');
         const win = {element: winElement, process: proc};
