@@ -9,6 +9,7 @@ const ASCII_CARRIAGE_RETURN = "\x0D"
 
 // https://notes.burke.libbey.me/ansi-escape-codes/
 // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
+// https://vt100.net/docs/vt100-ug/chapter3.html#ED
 
 /** Control Sequence Introducer */
 const ANSI_CSI = `${ASCII_ESCAPE}[`
@@ -17,12 +18,28 @@ const ANSI_CURSOR_UP = `${ANSI_CSI}A`;
 const ANSI_CURSOR_DOWN = `${ANSI_CSI}B`;
 const ANSI_CURSOR_FORWARD = `${ANSI_CSI}C`;
 const ANSI_CURSOR_BACK = `${ANSI_CSI}D`;
-const ANSI_CURSOR_END_OF_LINE = ansiSetCursorPosition(999); // We assume fewer than 999 columns
+const ANSI_CURSOR_END_OF_LINE = ansiSetCursorHorizontalAbsolute(999); // We assume fewer than 999 columns
+/** EL – Erase In Line */
 const ANSI_ERASE_ENTIRE_LINE = `${ANSI_CSI}2K`
+/** ED – Erase In Display */
 const ANSI_ERASE_ENTIRE_SCREEN = `${ANSI_CSI}2J`
 
-function ansiSetCursorPosition(pos) {
-    return `${ANSI_CSI}${pos}G`;
+/** Cursor Position Report (request)*/
+const ANSI_GET_CURSOR_POSITION = `${ANSI_CSI}6n`;
+
+/** Cursor Position Report (response)*/
+function cursorPositionReport(line, col) {
+    return `${ANSI_CSI}${line};${col}R`;
+}
+
+/** Cursor Horizontal Absolute */
+function ansiSetCursorHorizontalAbsolute(col) {
+    return `${ANSI_CSI}${col}G`;
+}
+
+/** CUP – Cursor Position */
+function ansiCursorPosition(line, col) {
+    return `${ANSI_CSI}${line};${col}H`;
 }
 
 /** "Custom" CSI, used for non-standard terminal commands */
@@ -42,11 +59,19 @@ class TextWithCursor {
     }
 
     moveRight() {
-        this.cursor = Math.min(this.cursor + 1, this.text.length);
+        if (this.cursor < this.text.length) {
+            this.cursor ++;
+            return true;
+        }
+        return false;
     }
 
     moveLeft() {
-        this.cursor = Math.max(this.cursor - 1, 0);
+        if (this.cursor > 0) {
+            this.cursor --;
+            return true;
+        }
+        return false;
     }
     
     moveToStart() {
@@ -68,6 +93,10 @@ class TextWithCursor {
         this.cursor = 0;
     }
 
+    enter() {
+        this.text += "\n";
+    }
+
     backspace() {
         if (this.cursor > 0) {
             this.text = this.text.slice(0, this.cursor - 1) + this.text.slice(this.cursor);
@@ -80,7 +109,7 @@ class TextWithCursor {
 
 function assert(condition, message) {
     if (!condition) {
-        console.error("Assertion failed", message);
+        console.error("Assertion failed:", message);
         debugger;
     }
 }

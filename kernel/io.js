@@ -29,6 +29,7 @@ class PseudoTerminal {
                 } else if (this._mode == PseudoTerminalMode.CHARACTER) {
                     this.pipeToSlave.requestWrite(this._createInfallibleWriter(text));
                 } else {
+                    assert(this._mode == PseudoTerminalMode.CHARACTER_AND_SIGINT);
                     let buf = "";
                     while (text.length > 0) {
                         if (text[0] == ASCII_END_OF_TEXT) {
@@ -42,7 +43,14 @@ class PseudoTerminal {
                         }
                         text = text.slice(1);
                     }
+                    if (buf.length > 0) {
+                        this.pipeToSlave.requestWrite(this._createInfallibleWriter(buf));
+                        buf = "";
+                    }
                 }
+            },
+            close: () => {
+                console.log("TODO: masterWriter.close()");
             }
         }
         this.slaveWriter = {
@@ -58,6 +66,12 @@ class PseudoTerminal {
                 return this.slaveWriter;
             }
         }
+
+        this._terminalSize = null; // is set on resize
+    }
+
+    terminalSize() {
+        return this._terminalSize;
     }
 
     ctrlC() {
@@ -71,6 +85,12 @@ class PseudoTerminal {
                 this._mode = config.mode;
                 return;
             }
+        } else if ("resize" in config) {
+            assert("width" in config.resize && "height" in config.resize);
+            this._terminalSize = [config.resize.width, config.resize.height];
+            const pgid = this.foreground_pgid;
+            this._system.sendSignalToProcessGroup("terminalResize", pgid);
+            return;
         }
         throw new SysError(`invalid pty config: ${JSON.stringify(config)}`);
     }
@@ -100,8 +120,11 @@ class LineDiscipline {
 
             let matched;
             let echo = true;
+            
             if (text[0] == ASCII_BACKSPACE) {
-                this.line.backspace();
+                
+                this.backspace();
+                echo = false;
                 matched = 1;
             } else if (text[0] == "\n") {
                 this.newline();
@@ -138,6 +161,12 @@ class LineDiscipline {
         }
     }
 
+    backspace() {
+        // https://unix.stackexchange.com/a/414246
+        const text = ASCII_BACKSPACE + " " + ASCII_BACKSPACE;
+        this.line.backspace();
+        this.pty.pipeToMaster.requestWrite(this.pty._createInfallibleWriter(text));
+    }
 
     ctrlD() {
         const text = this.line.text + ASCII_END_OF_TRANSMISSION;
@@ -319,7 +348,7 @@ class FileStream {
     }
 
     requestWrite(writer) {
-        assert(this.isOpen);
+        assert(this.isOpen, "Cannot write to closed file stream");
         const text = writer();
         this.openFileDescription.write(text);
     }
@@ -353,6 +382,23 @@ class NullStream {
         // Will never read anything
     }
 
+    close() {}
+
+    duplicate() {
+        return this;
+    }
+}
+
+class LogOutputStream {
+    constructor(label) {
+        this._label = label;
+    }
+
+    requestWrite(writer) {
+        const text = writer();
+        console.log(this._label, text);
+    }
+    
     close() {}
 
     duplicate() {

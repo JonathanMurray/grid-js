@@ -27,7 +27,10 @@ function formatExitValue(exitValue) {
     if (exitValue == null) {
         return "running";
     }
-    const str = "" + exitValue;
+    let str = "" + exitValue;
+    if (str == "[object Object]") {
+        str = "done";
+    }
     const maxLen = 40;
     if (str.length > maxLen) {
         return str.slice(0, maxLen - 3) + "...";

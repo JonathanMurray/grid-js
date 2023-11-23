@@ -36,6 +36,10 @@ class Syscalls {
         return this.system.configurePseudoTerminal(proc, args);
     }
 
+    getTerminalSize(proc, args) {
+        return this.system.getTerminalSize(proc);
+    }
+
     setForegroundProcessGroupOfPseudoTerminal(proc, args) {
         let {pgid, toSelf} = validateSyscallArgs(args, [], ["pgid", "toSelf"]);
         if ((pgid == undefined && toSelf == undefined) || (pgid != undefined && toSelf != undefined)) {
@@ -101,11 +105,11 @@ class Syscalls {
     }
 
     ignoreInterruptSignal(proc, args) {
-        proc.interruptSignalBehaviour = InterruptSignalBehaviour.IGNORE;
+        proc.interruptSignalBehaviour = SignalBehaviour.IGNORE;
     }
 
     handleInterruptSignal(proc, args) {
-        proc.interruptSignalBehaviour = InterruptSignalBehaviour.HANDLE;
+        proc.interruptSignalBehaviour = SignalBehaviour.HANDLE;
     }
 
     write(proc, args) {

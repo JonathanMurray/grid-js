@@ -11,30 +11,34 @@ class Snake {
     static MARGIN_TOP = 1;
 
     constructor(canvas) {
-        const grid = new Grid(canvas, {numColumns:16, numRows:16, xOffset:1, yOffset:1});
-        this.grid = grid;
+        this._canvas = canvas;
+        this._ctx = canvas.getContext("2d");
+        
+        this._numColumns = 16;
+        this._numRows = 16;
+        this._cellSize = [Math.floor(canvas.width / this._numColumns), Math.floor(canvas.height / this._numRows)];
 
-        grid.showBackgroundLines = false;
+        this._headerText = "";
 
-        grid.lines.push([0, Snake.MARGIN_TOP, grid.numColumns, Snake.MARGIN_TOP]);
-        grid.lines.push([0, grid.numRows, grid.numColumns, grid.numRows]);
-        grid.lines.push([0, Snake.MARGIN_TOP, 0, grid.numRows]);
-        grid.lines.push([grid.numColumns, Snake.MARGIN_TOP, grid.numColumns, grid.numRows]);
-        grid.centerText = false;
+        this._lines = [];
+        this._lines.push([0, Snake.MARGIN_TOP, this._numColumns, Snake.MARGIN_TOP]);
+        this._lines.push([0, this._numRows, this._numColumns, this._numRows]);
+        this._lines.push([0, Snake.MARGIN_TOP, 0, this._numRows]);
+        this._lines.push([this._numColumns, Snake.MARGIN_TOP, this._numColumns, this._numRows]);
 
         this.resetGameState();
         
         this.previousTimestamp;
         this.timeUntilNextFrame = Snake.FRAME_DURATION;
         
-        const self = this;
-
         writeln("Use WASD or arrow keys for movement.");
     }
 
     resize(width, height) {
-        this.grid.resizeCanvasLetterboxed(width, height);
-        this.grid.draw();
+        this._canvas.width = width;
+        this._canvas.height = height;
+        
+        this.draw();
     }
 
     resetGameState() {
@@ -45,15 +49,9 @@ class Snake {
         this.commandedDirection = this.direction;
         this.food = this.findFreeCell();
         this.updateHeaderText();
+        this._crashPosition = null;
 
-        this.grid.forEachCell((col, row) => {
-            delete this.grid.backgrounds[col][row];
-        });
-        for (let [col, row] of this.snake) {
-            this.grid.backgrounds[col][row] = "red";
-        }
-        this.grid.backgrounds[this.food[0]][this.food[1]] = "green";
-        this.grid.draw();
+        this.draw();
     }
 
     handleEvent(name, event) {
@@ -84,12 +82,6 @@ class Snake {
         }
     }
 
-    setHeaderText(text) {
-        for (let col = 0; col < this.grid.numColumns; col ++) {
-            this.grid.characters[col][0] = text.charAt(col);
-        }
-    }
-
     async run() {
         while (!this.gameOver) {
             this.runOneFrame();
@@ -102,13 +94,13 @@ class Snake {
         if (this.gameOver) {
             text += " GAME OVER.";
         }
-        this.setHeaderText(text)
+        this._headerText = text;
     }
 
     lose() {
         this.gameOver = true;
         this.updateHeaderText();
-        this.grid.draw();
+        this.draw();
         writeln("Game over. Press Space to play again.");
     }
 
@@ -118,7 +110,7 @@ class Snake {
         const newHead = this.add(oldHead, this.direction);
 
         if (!this.withinGameBounds(newHead)) {
-            this.grid.backgrounds[oldHead[0]][oldHead[1]] = "purple";
+            this._crashPosition = oldHead;
             this.lose();
             return;
         }
@@ -128,35 +120,54 @@ class Snake {
             this.updateHeaderText();
             this.food = this.findFreeCell();
         } else {
-            const removed = this.snake.shift();
-            delete this.grid.backgrounds[removed[0]][removed[1]];
+            this.snake.shift();
         }
 
         if (this.snakeContains(newHead)) {
-            this.grid.backgrounds[newHead[0]][newHead[1]] = "purple";
+            this._crashPosition = newHead;
             this.lose();
             return;
         }
 
         this.snake.push(newHead);
 
+        this.draw();
+    }
+
+    draw() {
+        this._ctx.fillStyle = "lightblue";
+        this._ctx.fillRect(0, 0, this._canvas.width, this._canvas.height);
+
         for (let [col, row] of this.snake) {
-            this.grid.backgrounds[col][row] = "red";
+            this._ctx.fillStyle = "red";
+            Grid.fillCell(this._ctx, this._cellSize, [col, row]);
         }
-        this.grid.backgrounds[this.food[0]][this.food[1]] = "green";
-        this.grid.draw();
+        this._ctx.fillStyle = "green";
+        Grid.fillCell(this._ctx, this._cellSize, this.food);
+
+        if (this._crashPosition != null) {
+            this._ctx.fillStyle = "purple";
+            Grid.fillCell(this._ctx, this._cellSize, this._crashPosition);
+        }
+
+        this._ctx.fillStyle = "black";
+        for (let col = 0; col < this._numColumns; col ++) {
+            Grid.characterCell(this._ctx, this._cellSize, [col, 0], this._headerText.charAt(col));
+        }
+
+        Grid.cellLines(this._ctx, this._cellSize, this._lines);
     }
 
     withinGameBounds(cell) {
-        return (cell[0] >= 0 && cell[0] < this.grid.numColumns && 
-                cell[1] >= Snake.MARGIN_TOP && cell[1] < this.grid.numRows);
+        return (cell[0] >= 0 && cell[0] < this._numColumns && 
+                cell[1] >= Snake.MARGIN_TOP && cell[1] < this._numRows);
     }
 
     findFreeCell() {
         // avoid hanging the browser tab, if we mess up
         for (let i = 0; i < 10_000; i++) {
-            let randomCol = Math.floor(Math.random() * this.grid.numColumns);
-            let randomRow = Snake.MARGIN_TOP + Math.floor(Math.random() * (this.grid.numRows - Snake.MARGIN_TOP));
+            let randomCol = Math.floor(Math.random() * this._numColumns);
+            let randomRow = Snake.MARGIN_TOP + Math.floor(Math.random() * (this._numRows - Snake.MARGIN_TOP));
             if (!this.snakeContains([randomCol, randomRow])) {
                 return [randomCol, randomRow];
             }
@@ -204,7 +215,7 @@ async function main(args) {
         snake.resize(event.width, event.height);
         //window.canvas.width = shortestSide;
        // window.canvas.height = shortestSide;
-        //snake.grid.draw();
+        //snake.grid.draw(this._ctx);
     }
 
     snake.run();

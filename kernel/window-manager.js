@@ -107,7 +107,10 @@ class WindowManager {
                 }
                 if (newWidth != undefined) {
                     canvasWrapper.style.width = newWidth;
-                    window.element.getElementsByClassName(CLASS_HEADER)[0].style.width = newWidth;
+                    
+                    const windowHeader = window.element.getElementsByClassName(CLASS_HEADER)[0];
+                    const padding = Number.parseInt(windowHeader.style.paddingLeft.replace("px", ""));
+                    windowHeader.style.width = newWidth - padding;
                 }
                 if (newHeight != undefined) {
                     canvasWrapper.style.height = newHeight;
@@ -136,11 +139,10 @@ class WindowManager {
                 canvas.style.height = canvasWrapper.style.height;
                 const canvasRect = this.rect(canvas);
                 const resizeEvent = {width: canvasRect.width * CANVAS_SCALE, height: canvasRect.height * CANVAS_SCALE};
-                canvas.style.display = "none";
+                canvas.style.display = "none"; // Hide during resize to reduce glitching
                 this.sendInputToProcess(window, {name: "resize", event: resizeEvent});
                 this.ongoingResize = null;
             }
-            
         });
 
         window.addEventListener("keydown", (event) => {
@@ -159,7 +161,12 @@ class WindowManager {
                 // default = Chrome edit bookmark
                 event.preventDefault();
             }
-        
+
+            if (["-", "+"].includes(event.key) && event.ctrlKey) {
+                // default = zoom webpage
+                event.preventDefault();
+            }
+
             if (event.key == "Control") {
                 // default = Chrome menu takes focus
                 event.preventDefault();
@@ -335,7 +342,7 @@ class WindowManager {
         canvasWrapper.style.height = styleSize[1];
         canvas.style.width = styleSize[0];
         canvas.style.height = styleSize[1];
-        
+
         winElement.addEventListener("mousedown", (event) => {
             const {mouseX, mouseY} = this.translateMouse(event);
             const rect = this.rect(winElement);
@@ -422,6 +429,15 @@ class WindowManager {
             event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
             this.sendInputToProcess(win, {name: "click", event});
         });
+        canvas.addEventListener(
+            "wheel", 
+            (event) => {
+                event = {deltaY: event.deltaY};
+                this.sendInputToProcess(win, {name: "wheel", event});
+            }, 
+            // "passive" fixes warning log: https://chromestatus.com/feature/5745543795965952
+            {passive:true}
+        );
     
         this.screenArea.appendChild(winElement);
 

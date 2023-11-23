@@ -63,7 +63,6 @@ class Plot {
     }
 }
 
-
 async function main(args) {
 
     let resolvePromise;

@@ -26,7 +26,7 @@ class Process {
         this.exitValue = null;
         this.exitWaiters = [];
 
-        this.interruptSignalBehaviour = InterruptSignalBehaviour.EXIT;
+        this.interruptSignalBehaviour = SignalBehaviour.EXIT;
 
         // Historic count, useful for getting a sense of how busy a process is
         this.syscallCount = 0;
@@ -36,20 +36,24 @@ class Process {
     }
 
     receiveInterruptSignal() {
-        if (this.interruptSignalBehaviour == InterruptSignalBehaviour.EXIT) {
+        const behaviour = this.interruptSignalBehaviour;
+        if (behaviour == SignalBehaviour.EXIT) {
             return true;
-        } else if (this.interruptSignalBehaviour == InterruptSignalBehaviour.HANDLE) {
+        } else if (behaviour == SignalBehaviour.HANDLE) {
             console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this.syscallHandles)}`)
             // Any ongoing syscalls will throw an error that can be
             // caught in the application code.
             for (let id of Object.keys(this.syscallHandles)) {
                 this.rejectPromise(id, {name: "ProcessInterrupted", message: "interrupted"});
             }
-            
-        } else if (this.interruptSignalBehaviour == InterruptSignalBehaviour.IGNORE) {
+        } else if (behaviour == SignalBehaviour.IGNORE) {
             console.log(`[${this.pid}] ignoring interrupt signal`)
         }
         return false
+    }
+
+    receiveTerminalResizeSignal() {
+        this.worker.postMessage({"terminalResizeSignal": null});;
     }
 
     promise() {
@@ -135,6 +139,7 @@ class Process {
         this.exitValue = exitValue;
 
         for (let streamId in this.streams) {
+            console.log(this.pid, this.streams, this.streams[streamId]);
             this.streams[streamId].close();
         }
 

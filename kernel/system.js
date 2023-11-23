@@ -74,7 +74,6 @@ class System {
         */
 
         const programs = [
-            "animation", 
             "cat",
             "countdown",
             "crash", 
@@ -82,6 +81,7 @@ class System {
             "echo",
             "editor", 
             "launcher", 
+            "less",
             "lines",
             "ls", 
             "plot", 
@@ -95,7 +95,8 @@ class System {
             "time", 
         ];
         let files = {
-            "textfile": new TextFile("hello world"),
+            "textfile": new TextFile("hello world\nthis is the second line. it is longer. it may even be long enough to have to break.\n and here is the third line after a white space."),
+            "short": new TextFile("hello world"),
             "empty": new TextFile("<script>\nfunction main() {}\n"),
             "log": new TextFile("<script>\nasync function main(args) { console.log(args); }\n"),
         };
@@ -113,9 +114,8 @@ class System {
 
         system.windowManager = await WindowManager.init(spawnFromUi);
 
-        const initProgram = "terminal";
-
-        system.spawnProcess({programName: initProgram, args: [], streams: {}, ppid: null, pgid: "START_NEW", sid: null});
+        system.spawnProcess({programName: "terminal", args: [], streams: {1: new LogOutputStream("[TERMINAL]")}, ppid: null, pgid: "START_NEW", sid: null});
+        //system.spawnProcess({programName: "sudoku", args: ["crash"], streams: {1: new LogOutputStream("[MAIN]"), 0: new NullStream()}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }
@@ -314,8 +314,11 @@ class System {
             lethal = proc.receiveInterruptSignal();
         } else if (signal == "hangup") {
             lethal = true;
+        } else if (signal == "terminalResize") {
+            proc.receiveTerminalResizeSignal();
+            lethal = false;
         } else {
-            throw new SysError("no such signal");
+            throw new SysError(`no such signal: '${signal}'`);
         }
 
         if (lethal) {
@@ -356,9 +359,17 @@ class System {
         }
         pty.configure(config);
     }
+
+    getTerminalSize(proc) {
+        const pty = this.pseudoTerminals[proc.sid];
+        if (pty == undefined) {
+            throw new SysError("no pseudoterminal connected to session");
+        }
+        return pty.terminalSize();
+    }
 }
 
-const InterruptSignalBehaviour = {
+const SignalBehaviour = {
     EXIT: "EXIT",
     IGNORE: "IGNORE",
     HANDLE: "HANDLE"

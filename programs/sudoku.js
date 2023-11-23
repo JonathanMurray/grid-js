@@ -21,42 +21,87 @@ class Sudoku {
             startingNumbers = Sudoku.parseSudoku(start);
         }
 
-        this.canvas = canvas;
         this.startingNumbers = startingNumbers;
-        this.grid = new Grid(canvas, {numColumns:9, numRows:9, xOffset: 1, yOffset: 1});
-        const grid = this.grid;
+        this._canvas = canvas;
+        this._ctx = canvas.getContext("2d");
+        this._lines = [];
 
         for (let row = 0; row <= 9; row += 3) {
-            grid.lines.push([0, row, 9, row]);
+            this._lines.push([0, row, 9, row]);
         }
         for (let col = 0; col <= 9; col += 3) {
-            grid.lines.push([col, 0, col, 9]);
+            this._lines.push([col, 0, col, 9]);
+        }
+
+        this._characterRows = [];
+        for (let y = 0; y < 9; y++) {
+            this._characterRows.push(new Array(9));
         }
 
         this.mouseCell;
 
+        this._numColumns = 9;
+        this._numRows = 9;
 
-        grid.forEachCell((col, row) => {
-            const startingNumber = this.startingNumber(col, row);
-            if (startingNumber != null) {
-                grid.foregrounds[col][row] = "green";
-                grid.characters[col][row] = startingNumber;
+        this._cellSize = [Math.floor(canvas.width / this._numColumns), Math.floor(canvas.height / this._numRows)];
+
+       
+        for (let col = 0; col < 9; col++) {
+            for (let row = 0; row < 9; row++) {
+                const startingNumber = this.startingNumber(col, row);
+                if (startingNumber != null) {
+                    this._characterRows[row][col] = startingNumber;
+                }
             }
-        });
+        }
 
-        grid.draw();
+        this.draw();
+    }
+
+    draw() {
+
+        this._ctx.fillStyle = "white";
+        this._ctx.fillRect(0, 0, this._canvas.width, this._canvas.height);
+        Grid.cellLines(this._ctx, this._cellSize, this._lines);
+
+        for (let y = 0; y < 9; y++) {
+            for (let x = 0; x < 9; x++) {
+                if (this.mouseCell && this.mouseCell[0] == x && this.mouseCell[1] == y) {
+                    this._ctx.fillStyle = "#AAFFFF";
+                    Grid.fillCell(this._ctx, this._cellSize, [x, y]);
+                }
+
+                const ch = this._characterRows[y][x];
+                if (ch != null) {
+                    
+               
+                    if (this.startingNumber(x, y) != null) {
+                        this._ctx.fillStyle = "green";
+                    } else {
+                        this._ctx.fillStyle = "black";
+                    }
+                    
+                    Grid.characterCell(this._ctx, this._cellSize, [x, y], ch);
+                }
+            }
+        }
+
+        this._ctx.strokeStyle = "black";
+        Grid.outlineCells(this._ctx, this._cellSize, [9, 9]);
+
     }
 
     handleEvent(name, event) {
         if (name == "mousemove") {
-            this.setMouseCell(this.grid.pixelToCell(event.x, event.y));
+            this.setMouseCell(Grid.pixelToCell([event.x, event.y], this._cellSize, [9, 9]));
         } else if (name == "click") {
-            const cell = this.grid.pixelToCell(event.x, event.y);
+            const cell = Grid.pixelToCell([event.x, event.y], this._cellSize, [9, 9]);
             if (cell !== null) {
                 const [col, row] = cell;
                 if (this.startingNumber(col, row) == null) {
-                    delete this.grid.characters[col][row];
-                    this.grid.draw();
+                    //delete this.grid.characters[col][row];
+                    delete this._characterRows[row][col];
+                    this.draw();
                     this.validate();
                 }
             }
@@ -64,8 +109,8 @@ class Sudoku {
             const NUMBERS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
             const isNumeric = NUMBERS.indexOf(event.key) > -1;
             if (this.mouseCell != null && isNumeric && this.startingNumber(this.mouseCell[0], this.mouseCell[1]) == null) {
-                this.grid.characters[this.mouseCell[0]][this.mouseCell[1]] = event.key;
-                this.grid.draw();
+                this._characterRows[this.mouseCell[1]][this.mouseCell[0]] = event.key;
+                this.draw();
                 this.validate();
             }
         } else if (name == "mouseout") {
@@ -75,12 +120,7 @@ class Sudoku {
 
     setMouseCell(cell) {
         this.mouseCell = cell;
-        this.grid.forEachCell((col, row) => delete this.grid.backgrounds[col][row]);
-        if (this.mouseCell !== null) {
-            let [col, row] = this.mouseCell;
-            this.grid.backgrounds[col][row] = "#AAFFFF";
-        } 
-        this.grid.draw();
+        this.draw();
     }
 
     startingNumber(col, row) {
@@ -103,7 +143,7 @@ class Sudoku {
         for (let col = 0; col < 9; col ++) {
             let chars = new Set();
             for (let row = 0; row < 9; row ++) {
-                let ch = this.grid.characterAt(col, row);
+                const ch = this._characterRows[row][col];
                 if (ch != null) {
                     if (chars.has(ch)) {
                         return false;
@@ -117,7 +157,7 @@ class Sudoku {
         for (let row = 0; row < 9; row ++) {
             let chars = new Set();
             for (let col = 0; col < 9; col ++) {
-                let ch = this.grid.characterAt(col, row);
+                const ch = this._characterRows[row][col];
                 if (ch != null) {
                     if (chars.has(ch)) {
                         return false;
@@ -135,7 +175,7 @@ class Sudoku {
                     const col = col0 + i;
                     for (let j = 0; j < 3; j++) {
                         const row = row0 + j;
-                        let ch = this.grid.characterAt(col, row);
+                        const ch = this._characterRows[row][col];
                         if (ch != null) {
                             if (chars.has(ch)) {
                                 return false;
@@ -223,7 +263,6 @@ class Sudoku {
         console.assert(row == 9, row);
         return startingNumbers;
     }
-
 }
 
 async function main(args) {

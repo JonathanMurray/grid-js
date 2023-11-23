@@ -7,51 +7,49 @@ let history;
 
 async function main(args) {
 
-    await stdlib.terminal.setTextStyle("#0F0");
-    await stdlib.terminal.setBackgroundStyle("black");
     await writeln("Welcome. Type help to get started.");
     await write(PROMPT);
     
     await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
     
     let currentLine = new TextWithCursor();
+
+
+    function line() {
+        return `${ANSI_ERASE_ENTIRE_LINE}${ASCII_CARRIAGE_RETURN}${PROMPT}${currentLine.text}`;
+    }
+
+    function cursorPos(cursor) {
+        return ansiSetCursorHorizontalAbsolute(PROMPT.length + cursor + 1);
+    }
+
     history = new History();
     while (true) {
         let received = await read();
         while (received != "") {
             let matched;
-            let echo = true;
+            let enter = false;
+            let ctrlD = false;
+            let ctrlC = false;
+            let up = false;
+            let down = false;
             if (received[0] == ASCII_BACKSPACE) {
-                echo = currentLine.backspace();
+                currentLine.backspace();
                 matched = 1;
             } else if (received[0] == "\n") {
-                await write("\n");
-                history.onEnter(currentLine.text);
-                await handleInputLine(currentLine.text);
-                currentLine.reset();
-                echo = false;
-                await write(PROMPT);
+                enter = true;
                 matched = 1;
             } else if (received[0] == ASCII_END_OF_TRANSMISSION) {
-                currentLine.reset();
+                ctrlD = true;
                 matched = 1;
-                echo = false;
-                await write("^D\n");
             } else if (received[0] == ASCII_END_OF_TEXT) {
-                currentLine.reset();
+                ctrlC = true;
                 matched = 1;
-                echo = false;
-                await write(`^C\n${PROMPT}`);
-                history.clearSelection();
             } else if (received[0] == ASCII_CARRIAGE_RETURN) {
                 currentLine.moveToStart();
-                echo = false;
-                await write(ansiSetCursorPosition(PROMPT.length + 1));
                 matched = 1;
             } else if (received.startsWith(ANSI_CURSOR_BACK)) {
                 currentLine.moveLeft();
-                echo = false;
-                await write(ansiSetCursorPosition(PROMPT.length + 1 + currentLine.cursor));
                 matched = ANSI_CURSOR_BACK.length;
             } else if (received.startsWith(ANSI_CURSOR_FORWARD)) {
                 currentLine.moveRight();
@@ -60,39 +58,52 @@ async function main(args) {
                 currentLine.moveToEnd();
                 matched = ANSI_CURSOR_END_OF_LINE.length;
             } else if (received.startsWith(ANSI_CURSOR_UP)) {
-                echo = false;
-                const selectedLine = history.onCursorUp();
-                const prefix = `${ANSI_ERASE_ENTIRE_LINE}${ASCII_CARRIAGE_RETURN}${PROMPT}`;
-                if (selectedLine != null) {
-                    currentLine.text = selectedLine;
-                    currentLine.moveToEnd();
-                    await write(`${prefix}${selectedLine}`);
-                } else {
-                    currentLine.reset();
-                    await write(prefix);
-                }
+                up = true;
                 matched = ANSI_CURSOR_UP.length;
             } else if (received.startsWith(ANSI_CURSOR_DOWN)) {
-                echo = false;
-                const selectedLine = history.onCursorUp();
-                const prefix = `${ANSI_ERASE_ENTIRE_LINE}${ASCII_CARRIAGE_RETURN}${PROMPT}`;
-                if (selectedLine != null) {
-                    currentLine.text = selectedLine;
-                    currentLine.moveToEnd();
-                    await write(`${prefix}${selectedLine}`);
-                } else {
-                    currentLine.reset();
-                    await write(prefix);
-                }
+                down = true;
                 matched = ANSI_CURSOR_DOWN.length;
             } else {
                 currentLine.insert(received[0]);
                 matched = 1;
             } 
-            if (echo) {
-                await write(received.slice(0, matched));
-            }
+
             received = received.slice(matched);
+
+            if (enter) {
+                await write(line() + "\n");
+                history.onEnter(currentLine.text);
+                await handleInputLine(currentLine.text);
+                currentLine.reset();
+                await write(PROMPT);
+            } else if (ctrlC) {
+                await write(line() + "^C\n" + PROMPT);
+                history.clearSelection();
+                currentLine.reset();
+            } else if (ctrlD) {
+                await write(line() + "^D\n" + PROMPT);
+                currentLine.reset();
+            } else if (up) {
+                const selectedLine = history.onCursorUp();
+                if (selectedLine != null) {
+                    currentLine.text = selectedLine;
+                    currentLine.moveToEnd();
+                } else {
+                    currentLine.reset();
+                }
+                await write(line() + cursorPos(currentLine.cursor));
+            } else if (down) {
+                const selectedLine = history.onCursorDown();
+                if (selectedLine != null) {
+                    currentLine.text = selectedLine;
+                    currentLine.moveToEnd();
+                } else {
+                    currentLine.reset();
+                }
+                await write(line() + cursorPos(currentLine.cursor));
+            } else {
+                await write(line() + cursorPos(currentLine.cursor));
+            }
         }
         
     }

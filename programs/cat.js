@@ -5,7 +5,6 @@ async function main(args) {
         const fileName = args[0];
         const streamId = await syscall("openFile", {fileName});
         const text = await syscall("read", {streamId});
-        console.log("cat read text: '"+ text+ "'");
         if (text == null) {
             await writeln("<no such file>");
         } else {

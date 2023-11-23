@@ -13,12 +13,24 @@ async function main(args) {
     const shellStdin = pty.slave.in;
     const shellStdout = pty.slave.out;
 
-    const normalScreenBuffer = new TextGrid(window.canvas);
-    let screenBuffer = normalScreenBuffer;
+    const canvas = window.canvas;
+    const ctx = canvas.getContext("2d");
     
+    let cellSize = [14, 22];
+
+    let terminalSize = [Math.floor(canvas.width / cellSize[0]), Math.floor(canvas.height / cellSize[1])];
+
+    let terminalGrid = new TerminalGrid(terminalSize);
+
     let shellPid;
 
     await syscall("handleInterruptSignal");
+
+    function draw() {
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        terminalGrid.draw(ctx, cellSize);
+    }
 
     try {
         shellPid = await syscall("spawn", {program: "shell", streamIds: [shellStdin, shellStdout],
@@ -27,20 +39,46 @@ async function main(args) {
         const shellPgid = shellPid; // The shell is process group leader
         await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: shellPgid});
 
+        async function recomputeTerminalSize() {
+            terminalSize = [Math.floor(canvas.width/ cellSize[0]), Math.floor(canvas.height / cellSize[1])];
+            terminalGrid.resize(terminalSize);
+            draw();
+            await syscall("configurePseudoTerminal", {resize: {width: terminalSize[0], height: terminalSize[1]}});
+        }
+
+        async function changeFontSize(modifier) {
+            // TODO Careful with float canvas coordinates. Can they cause bad antialiasing effects?
+            cellSize = [cellSize[0] * modifier, cellSize[1] * modifier];
+            await recomputeTerminalSize();
+        }
+
         window.onresize = (event) => {
-            screenBuffer.resize(event.width, event.height);
-            screenBuffer.draw();
+            canvas.width = event.width;
+            canvas.height = event.height;
+
+            recomputeTerminalSize()
+        }
+
+        window.onwheel = (event) => {
+            const updated = terminalGrid.scroll(event.deltaY);
+            if (updated) {
+                draw();
+            }
         }
 
         window.onkeydown = (event) => {
             const key = event.key;
-
             let sequence;
     
             if (event.ctrlKey && key == "c") {
                 sequence = ASCII_END_OF_TEXT;
             } else if(event.ctrlKey && key == "d") {
                 sequence = ASCII_END_OF_TRANSMISSION;
+            } else if (event.ctrlKey && key == "-") {
+                console.log("SMALLER");
+                changeFontSize(0.9);
+            } else if (event.ctrlKey && key == "+") {
+                changeFontSize(1.11);
             } else if (key == "Backspace") {
                 sequence = ASCII_BACKSPACE;
             } else if (key == "ArrowUp") {
@@ -60,7 +98,7 @@ async function main(args) {
             } else if (key == "Shift") {
                 sequence = null;
             } else if (key.length > 1) {
-                console.log("Unhandled key in terminal: ", key);
+                //console.log("Unhandled key in terminal: ", key);
                 sequence = null;
             } else {
                 sequence = key;
@@ -75,109 +113,46 @@ async function main(args) {
             let text = await syscall("read", {streamId: terminalPtyReader});
 
             while (text != "") {
-                
-                let matched;
+                const unhandledAnsiFunction = terminalGrid.insert(text);
 
-                if (text[0] == ASCII_BACKSPACE) {
-                    if (screenBuffer.cursorChar > 0) {
-                        screenBuffer.eraseInLine();
-                    }
-                    matched = 1;
-                } else if (text[0] == "\n") {
-                    screenBuffer.lines.push("");
-                    screenBuffer.cursorLine ++;
-                    screenBuffer.cursorChar = 0;
-                    matched = 1;
-                } else if (text[0] == ASCII_CARRIAGE_RETURN) {
-                    screenBuffer.moveToStartOfLine();
-                    matched = 1;
-                } else if (text.startsWith(ANSI_CSI)) {
-
-                    let args = [];
-                    let numberString = "";
-                    let i = ANSI_CSI.length;
-                    while(true) {
-                        if ("0123456789".includes(text[i])) {
-                            numberString += text[i];
+                if (unhandledAnsiFunction == undefined) {
+                    text = ""; // All text was handled
+                } else {
+                    const {ansiFunction, args, consumed, matched} = unhandledAnsiFunction;
+                    text = text.slice(consumed);
+                    if (ansiFunction == "n") {
+                        if (args[0] == 6) {
+                            // See ANSI_GET_CURSOR_POSITION
+                            const cursorPosition = terminalGrid.cursorPosition();
+                            await write(cursorPositionReport(cursorPosition[1] + 1, cursorPosition[0] + 1), terminalPtyWriter);
                         } else {
-                            args.push(Number.parseInt(numberString));
-                            numberString = "";
-                            if (text[i] != ";") {
-                                break;
-                            }
-                        } 
-                        i++;
-                    }
-                    const ansiFunction = text[i];
-
-                    if (ansiFunction == "C") {
-                        if (screenBuffer.cursorChar < screenBuffer.lines[screenBuffer.lines.length - 1].length) {
-                            screenBuffer.cursorChar ++;
+                            assert(false, "support more ansi 'n' functions");
                         }
-                        matched = i + 1;
-                    } else if (ansiFunction == "D") {
-                        if (screenBuffer.cursorChar > 0) {
-                            screenBuffer.cursorChar --;
-                        }
-                        matched = i + 1;
-                    } else if (ansiFunction == "G") {
-                        screenBuffer.moveToColumnIndex(args[0] - 1);
-                        matched = i + 1;
-                    } else if (ansiFunction == "J") {
-                        /*
-                        https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-                        CSI Ps J  Erase in Display (ED), VT100.
-                        Ps = 0  ⇒  Erase Below (default).
-                        Ps = 1  ⇒  Erase Above.
-                        Ps = 2  ⇒  Erase All.
-                        Ps = 3  ⇒  Erase Saved Lines, xterm.
-                        */
-                        if (args[0] == 2) {
-                            screenBuffer.clear();
-                        } else {
-                            assert(false, "TODO: support more ansi erase functions");
-                        }
-                        matched = i + 1;
-                    } else if (ansiFunction == "K") {
-                        if (args[0] == 2) {
-                            // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797#erase-functions
-                            screenBuffer.eraseEntireLine();
-                        } else {
-                            assert(false, "TODO: support more ansi erase functions");
-                        }
-                        matched = i + 1;
                     } else if (ansiFunction == "X") {
                         const commandLen = args[0];
-                        let command = text.slice(i + 1, i + 1 + commandLen);
+                        let command = text.slice(0, commandLen);
                         command = JSON.parse(command);
                         if ("setTextStyle" in command) {
-                            screenBuffer.setTextStyle(command.setTextStyle);
+                            console.error("TODO: implement proper ansi color support");
                         } else if ("setBackgroundStyle" in command) {
-                            screenBuffer.setBackgroundStyle(command.setBackgroundStyle);
+                            console.error("TODO: implement proper ansi color support");
                         } else if ("enterAlternateScreen" in command) {
-                            const alternate = new TextGrid(window.canvas);
-                            alternate.setBackgroundStyle(screenBuffer.background);
-                            alternate.setTextStyle(screenBuffer.textStyle);
-                            screenBuffer = alternate;
+                            terminalGrid.enterAlternate();
                         } else if ("exitAlternateScreen" in command) {
-                            screenBuffer = normalScreenBuffer;
+                            terminalGrid.exitAlternate();
                         } else {
                             console.error("Unhandled terminal command: ", command);
                         }
-
-                        matched = i + 1 + commandLen;
+    
+                        text = text.slice(commandLen);
                     } else {
-                        assert(false, `Unhandled ansi function: '${ansiFunction}`);
+                        console.error("Unhandled ansi function: ", ansiFunction, args, consumed, matched);
+                        return;
                     }
-                } else {
-                    screenBuffer.insertInLine(text[0]);
-                    matched = 1;
-                } 
-
-                text = text.slice(matched);
-
+                }
             }
-            screenBuffer.draw();
+
+            draw();
         }
     } catch (error) {
 
@@ -185,6 +160,7 @@ async function main(args) {
 
         if (error.name != "ProcessInterrupted") {
             console.warn("Terminal crash: ", error);
+            debugger;
         }
 
         if (shellPid != undefined) {
