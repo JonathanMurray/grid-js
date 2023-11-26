@@ -7,7 +7,7 @@ let history;
 
 async function main(args) {
 
-    await writeln("Welcome. Type help to get started.");
+    await writeln(`Welcome. ${ANSI_CSI}36mType${ANSI_CSI}39m ${ANSI_CSI}31mhelp${ANSI_CSI}39m to get started.`);
     await write(PROMPT);
     
     await syscall("configurePseudoTerminal", {mode: "CHARACTER"});

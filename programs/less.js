@@ -75,7 +75,7 @@ async function run(fileName) {
 
             if (i >= offset) {
                 if (lineBeginnings.includes(i)) {
-                    output += lineNumber.toString().padStart(lineNumberWidth) + " ";
+                    output +=  `${ANSI_CSI}35m${lineNumber.toString().padStart(lineNumberWidth)}${ANSI_CSI}39m `;
                 } else {
                     output += "".padStart(lineNumberWidth + 1);
                 }

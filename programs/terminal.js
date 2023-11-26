@@ -27,7 +27,7 @@ async function main(args) {
     await syscall("handleInterruptSignal");
 
     function draw() {
-        ctx.fillStyle = "black";
+        ctx.fillStyle = terminalGrid.defaultBackground;;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         terminalGrid.draw(ctx, cellSize);
     }
@@ -133,9 +133,9 @@ async function main(args) {
                         let command = text.slice(0, commandLen);
                         command = JSON.parse(command);
                         if ("setTextStyle" in command) {
-                            console.error("TODO: implement proper ansi color support");
+                            terminalGrid.setDefaultForeground(command.setTextStyle);
                         } else if ("setBackgroundStyle" in command) {
-                            console.error("TODO: implement proper ansi color support");
+                            terminalGrid.setDefaultBackground(command.setBackgroundStyle);
                         } else {
                             console.error("Unhandled terminal command: ", command);
                         }

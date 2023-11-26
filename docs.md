@@ -8,3 +8,5 @@ https://en.wikipedia.org/wiki/Termcap
 
 https://unix.stackexchange.com/questions/145050/what-exactly-is-scrollback-and-scrollback-buffer
 https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-The-Alternate-Screen-Buffer
+
+https://www.lihaoyi.com/post/BuildyourownCommandLinewithANSIescapecodes.html
