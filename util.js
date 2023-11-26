@@ -27,6 +27,10 @@ const ANSI_ERASE_ENTIRE_SCREEN = `${ANSI_CSI}2J`
 /** Cursor Position Report (request)*/
 const ANSI_GET_CURSOR_POSITION = `${ANSI_CSI}6n`;
 
+// https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797#common-private-modes
+const ANSI_ENABLE_ALTERNATIVE_BUFFER = `${ANSI_CSI}?1049h`;
+const ANSI_DISABLE_ALTERNATIVE_BUFFER = `${ANSI_CSI}?1049l`;
+
 /** Cursor Position Report (response)*/
 function cursorPositionReport(line, col) {
     return `${ANSI_CSI}${line};${col}R`;

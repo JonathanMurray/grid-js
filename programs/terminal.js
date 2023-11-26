@@ -136,10 +136,6 @@ async function main(args) {
                             console.error("TODO: implement proper ansi color support");
                         } else if ("setBackgroundStyle" in command) {
                             console.error("TODO: implement proper ansi color support");
-                        } else if ("enterAlternateScreen" in command) {
-                            terminalGrid.enterAlternate();
-                        } else if ("exitAlternateScreen" in command) {
-                            terminalGrid.exitAlternate();
                         } else {
                             console.error("Unhandled terminal command: ", command);
                         }
