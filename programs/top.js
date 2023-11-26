@@ -7,12 +7,18 @@ async function main(args) {
     try {
         await stdlib.terminal.enterAlternateScreen();
 
+        function header(text) {
+            return ansiBackgroundColor(text, 44);
+        }
+
         while (true) {
 
             const procs = await syscall("listProcesses");
             
             let output = ANSI_ERASE_ENTIRE_SCREEN;
-            output += "sid  pgid  ppid  pid  program   status    syscalls\n";
+            
+            output += (`${header("sid")}  ${header("pgid")}  ${header("ppid")}  ${header("pid")}  ` + 
+                       `${header("program")}   ${header("status")}    ${header("syscalls")}\n`);
             for (let proc of procs) {
                 const ppid = formatPpid(proc.ppid);
                 output += pad(proc.sid, 5) + pad(proc.pgid, 6) + pad(ppid, 6) + pad(proc.pid, 5) + pad(proc.programName, 10) 

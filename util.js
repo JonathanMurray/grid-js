@@ -31,6 +31,10 @@ const ANSI_GET_CURSOR_POSITION = `${ANSI_CSI}6n`;
 const ANSI_ENABLE_ALTERNATIVE_BUFFER = `${ANSI_CSI}?1049h`;
 const ANSI_DISABLE_ALTERNATIVE_BUFFER = `${ANSI_CSI}?1049l`;
 
+function ansiBackgroundColor(text, color) {
+    return `${ANSI_CSI}${color}m${text}${ANSI_CSI}49m`
+}
+
 /** Cursor Position Report (response)*/
 function cursorPositionReport(line, col) {
     return `${ANSI_CSI}${line};${col}R`;

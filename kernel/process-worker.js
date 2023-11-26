@@ -67,7 +67,7 @@ function sandbox(code, args) {
         console.warn(`[${pid}] Program crashed: `, error);
         console.warn(`[${pid}] Caused by: `, error.cause);
 
-        await writeln(`[${pid}] crashed!`);
+        await writeln(`${ANSI_CSI}37;41m[${pid}] Process crashed!${ANSI_CSI}39;49m`);
         
         if (error.stack) {
             const stackLines = error.stack.split('\n');
