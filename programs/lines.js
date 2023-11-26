@@ -11,7 +11,7 @@ async function main(args) {
             last = parseInt(lineArgs[lineArgs.length - 1]);
         }
         if (!(first && last)) {
-            await writeln("<invalid line numbers arg>");
+            await writeError("invalid line numbers arg");
             return;
         }
     } else {

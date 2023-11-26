@@ -20,7 +20,7 @@ async function main(args) {
 
     let terminalSize = [Math.floor(canvas.width / cellSize[0]), Math.floor(canvas.height / cellSize[1])];
 
-    let terminalGrid = new TerminalGrid(terminalSize);
+    let terminalGrid = new TerminalGrid(terminalSize, "black", "white");
 
     let shellPid;
 

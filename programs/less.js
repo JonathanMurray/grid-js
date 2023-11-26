@@ -7,7 +7,7 @@ async function main(args) {
             const fileName = args[0];
             await run(fileName);
         } else {
-            await writeln("<missing filename argument>")
+            await writeError("missing filename argument");
         }
     } catch (error) {
         if (error.name != "ProcessInterrupted") {
@@ -75,9 +75,9 @@ async function run(fileName) {
 
             if (i >= offset) {
                 if (lineBeginnings.includes(i)) {
-                    output +=  `${ANSI_CSI}35m${lineNumber.toString().padStart(lineNumberWidth)}${ANSI_CSI}39m `;
+                    output +=  `${ANSI_CSI}36;44m${lineNumber.toString().padStart(lineNumberWidth)}${ANSI_CSI}39;49m `;
                 } else {
-                    output += "".padStart(lineNumberWidth + 1);
+                    output += `${ANSI_CSI}44m${"".padStart(lineNumberWidth)}${ANSI_CSI}49m `;
                 }
                 output += rows[i].padEnd(lineWidth)
             }

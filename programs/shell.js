@@ -7,7 +7,7 @@ let history;
 
 async function main(args) {
 
-    await writeln(`Welcome. ${ANSI_CSI}36mType${ANSI_CSI}39m ${ANSI_CSI}31mhelp${ANSI_CSI}39m to get started.`);
+    await writeln(`Welcome. ${ANSI_CSI}36;45mType${ANSI_CSI}39;49m ${ANSI_CSI}31;44mhelp${ANSI_CSI}39;49m to get started.`);
     await write(PROMPT);
     
     await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
@@ -217,7 +217,7 @@ const builtins = {
         if (args.length >= 1) {
             await stdlib.terminal.setTextStyle(args[0]);
         } else {
-            await writeln("<missing color argument>");
+            await writeError("missing color argument");
         }
     },
 
@@ -225,7 +225,7 @@ const builtins = {
         if (args.length >= 1) {
             await stdlib.terminal.setBackgroundStyle(args[0]);
         } else {
-            await writeln("<missing color argument>");
+            await writeError("missing color argument");
         }
     },
 
@@ -239,10 +239,10 @@ const builtins = {
             try {
                 await syscall("sendSignal", {signal: "kill", pid});
             } catch (e) {
-                await writeln("<" + e.message + ">");
+                await writeError(e.message);
             }
         } else {
-            await writeln("<missing pid argument>");
+            await writeError("missing pid argument");
         }
     },
 

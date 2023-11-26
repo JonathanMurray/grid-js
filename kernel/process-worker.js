@@ -2,7 +2,7 @@
 // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers
 
 importScripts("../util.js", "../lib/stdlib.js", "../lib/document-cursor.js", "../lib/terminal-grid.js", "../lib/grid.js");
-const {write, writeln, read, readln, log} = stdlib;
+const {write, writeln, writeError, read, readln, log} = stdlib;
 
 
 function sandbox(code, args) {
