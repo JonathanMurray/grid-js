@@ -32,18 +32,12 @@ async function run(fileName) {
     await syscall("configurePseudoTerminal", {mode: "CHARACTER_AND_SIGINT"});
     await stdlib.terminal.enterAlternateScreen();
 
-    let termsize;
     let lineWidth;
     let rows;
     let lineToRowMapping;
     let inputBuffer = "";
 
-    await write(ansiCursorPosition(999, 999));
-    await write(ANSI_GET_CURSOR_POSITION);
-    const cursorPositionResponse = await read();
-    const cursorPos = parseCursorPositionResponse(cursorPositionResponse);
-
-    termsize = [cursorPos[1], cursorPos[0]];
+    let termsize = await syscall("getTerminalSize");
 
     async function init() {
         lineWidth = termsize[0] - leftMargin;
@@ -147,13 +141,4 @@ async function run(fileName) {
         }
    
     }
-}
-
-function parseCursorPositionResponse(response) {
-    const responseRegex = /\x1B\[(.+);(.+)R/;
-    const responseMatch = response.match(responseRegex);
-    const line = Number.parseInt(responseMatch[1]);
-    const col = Number.parseInt(responseMatch[2]);
-    assert(Number.isInteger(line) && Number.isInteger(col), "Invalid cursor position response: " + response);
-    return [line, col];
 }

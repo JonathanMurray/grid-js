@@ -7,105 +7,109 @@ let history;
 
 async function main(args) {
 
-    await writeln(`Welcome. ${ANSI_CSI}36;45mType${ANSI_CSI}39;49m ${ANSI_CSI}31;44mhelp${ANSI_CSI}39;49m to get started.`);
-    await write(PROMPT);
-    
     await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
-    
-    let currentLine = new TextWithCursor();
 
-
-    function line() {
-        return `${ANSI_ERASE_ENTIRE_LINE}${ASCII_CARRIAGE_RETURN}${PROMPT}${currentLine.text}`;
-    }
-
-    function cursorPos(cursor) {
-        return ansiSetCursorHorizontalAbsolute(PROMPT.length + cursor + 1);
-    }
+    await writeln(`Welcome. ${ANSI_CSI}36;45mType${ANSI_CSI}39;49m ${ANSI_CSI}31;44mhelp${ANSI_CSI}39;49m to get started.`);
 
     history = new History();
-    while (true) {
-        let received = await read();
-        while (received != "") {
-            let matched;
-            let enter = false;
-            let ctrlD = false;
-            let ctrlC = false;
-            let up = false;
-            let down = false;
-            if (received[0] == ASCII_BACKSPACE) {
-                currentLine.backspace();
-                matched = 1;
-            } else if (received[0] == "\n") {
-                enter = true;
-                matched = 1;
-            } else if (received[0] == ASCII_END_OF_TRANSMISSION) {
-                ctrlD = true;
-                matched = 1;
-            } else if (received[0] == ASCII_END_OF_TEXT) {
-                ctrlC = true;
-                matched = 1;
-            } else if (received[0] == ASCII_CARRIAGE_RETURN) {
-                currentLine.moveToStart();
-                matched = 1;
-            } else if (received.startsWith(ANSI_CURSOR_BACK)) {
-                currentLine.moveLeft();
-                matched = ANSI_CURSOR_BACK.length;
-            } else if (received.startsWith(ANSI_CURSOR_FORWARD)) {
-                currentLine.moveRight();
-                matched = ANSI_CURSOR_FORWARD.length;
-            } else if (received.startsWith(ANSI_CURSOR_END_OF_LINE)) {
-                currentLine.moveToEnd();
-                matched = ANSI_CURSOR_END_OF_LINE.length;
-            } else if (received.startsWith(ANSI_CURSOR_UP)) {
-                up = true;
-                matched = ANSI_CURSOR_UP.length;
-            } else if (received.startsWith(ANSI_CURSOR_DOWN)) {
-                down = true;
-                matched = ANSI_CURSOR_DOWN.length;
-            } else {
-                currentLine.insert(received[0]);
-                matched = 1;
-            } 
 
-            received = received.slice(matched);
+    async function getInputLine() {
+        let editLine = new TextWithCursor();
+        
+        const [_line, startCol] = await stdlib.terminal.getCursorPosition();
 
-            if (enter) {
-                await write(line() + "\n");
-                history.onEnter(currentLine.text);
-                await handleInputLine(currentLine.text);
-                currentLine.reset();
-                await write(PROMPT);
-            } else if (ctrlC) {
-                await write(line() + "^C\n" + PROMPT);
-                history.clearSelection();
-                currentLine.reset();
-            } else if (ctrlD) {
-                await write(line() + "^D\n" + PROMPT);
-                currentLine.reset();
-            } else if (up) {
-                const selectedLine = history.onCursorUp();
-                if (selectedLine != null) {
-                    currentLine.text = selectedLine;
-                    currentLine.moveToEnd();
+        function line() {
+            return `${ansiSetCursorHorizontalAbsolute(startCol)}${ANSI_ERASE_LINE_TO_RIGHT}${PROMPT}${editLine.text}`;
+        }
+
+        while (true) {
+            
+            await write(line() + ansiSetCursorHorizontalAbsolute(startCol + PROMPT.length + editLine.cursor));
+
+            let received = await read();
+
+            while (received != "") {
+                let matched;
+                let enter = false;
+                let ctrlD = false;
+                let ctrlC = false;
+                let up = false;
+                let down = false;
+                if (received[0] == ASCII_BACKSPACE) {
+                    editLine.backspace();
+                    matched = 1;
+                } else if (received[0] == "\n") {
+                    enter = true;
+                    matched = 1;
+                } else if (received[0] == ASCII_END_OF_TRANSMISSION) {
+                    ctrlD = true;
+                    matched = 1;
+                } else if (received[0] == ASCII_END_OF_TEXT) {
+                    ctrlC = true;
+                    matched = 1;
+                } else if (received[0] == ASCII_CARRIAGE_RETURN) {
+                    editLine.moveToStart();
+                    matched = 1;
+                } else if (received.startsWith(ANSI_CURSOR_BACK)) {
+                    log("MOVE LEFT"); // TODO
+                    editLine.moveLeft();
+                    matched = ANSI_CURSOR_BACK.length;
+                } else if (received.startsWith(ANSI_CURSOR_FORWARD)) {
+                    editLine.moveRight();
+                    matched = ANSI_CURSOR_FORWARD.length;
+                } else if (received.startsWith(ANSI_CURSOR_END_OF_LINE)) {
+                    editLine.moveToEnd();
+                    matched = ANSI_CURSOR_END_OF_LINE.length;
+                } else if (received.startsWith(ANSI_CURSOR_UP)) {
+                    up = true;
+                    matched = ANSI_CURSOR_UP.length;
+                } else if (received.startsWith(ANSI_CURSOR_DOWN)) {
+                    down = true;
+                    matched = ANSI_CURSOR_DOWN.length;
                 } else {
-                    currentLine.reset();
+                    editLine.insert(received[0]);
+                    matched = 1;
+                } 
+    
+                received = received.slice(matched);
+    
+                if (enter) {
+                    await write(line() + "\n");
+                    history.onEnter(editLine.text);
+                    const enteredLine = editLine.text;
+                    editLine.reset();
+                    return enteredLine;
+                } else if (ctrlC) {
+                    await write(line() + "^C\n");
+                    history.clearSelection();
+                    editLine.reset();
+                } else if (ctrlD) {
+                    await write(line() + "^D\n");
+                    editLine.reset();
+                } else if (up) {
+                    const selectedLine = history.onCursorUp();
+                    if (selectedLine != null) {
+                        editLine.text = selectedLine;
+                        editLine.moveToEnd();
+                    } else {
+                        editLine.reset();
+                    }
+                } else if (down) {
+                    const selectedLine = history.onCursorDown();
+                    if (selectedLine != null) {
+                        editLine.text = selectedLine;
+                        editLine.moveToEnd();
+                    } else {
+                        editLine.reset();
+                    }
                 }
-                await write(line() + cursorPos(currentLine.cursor));
-            } else if (down) {
-                const selectedLine = history.onCursorDown();
-                if (selectedLine != null) {
-                    currentLine.text = selectedLine;
-                    currentLine.moveToEnd();
-                } else {
-                    currentLine.reset();
-                }
-                await write(line() + cursorPos(currentLine.cursor));
-            } else {
-                await write(line() + cursorPos(currentLine.cursor));
             }
         }
-        
+    }
+    
+    while (true) {
+        const inputLine = await getInputLine();
+        await handleInputLine(inputLine);
     }
 }
 
@@ -122,7 +126,7 @@ async function handleInputLine(input) {
         parsed = await parse(input);
     } catch (error) {
         if (error instanceof ParseError) {
-            await writeln(`<${error.message}>`);
+            await writeError(error.message);
             return;
         }
     }

@@ -7,20 +7,23 @@ async function main(args) {
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
 
-    const pty = await syscall("createPseudoTerminal");
-    const terminalPtyReader = pty.master.in;
-    const terminalPtyWriter = pty.master.out;
-    const shellStdin = pty.slave.in;
-    const shellStdout = pty.slave.out;
+    
 
     const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
     
-    let cellSize = [14, 22];
+    let cellSize = [11, 18];
 
     let terminalSize = [Math.floor(canvas.width / cellSize[0]), Math.floor(canvas.height / cellSize[1])];
 
     let terminalGrid = new TerminalGrid(terminalSize, "black", "white");
+
+    const pty = await syscall("createPseudoTerminal");
+    await syscall("configurePseudoTerminal", {resize: {width: terminalSize[0], height: terminalSize[1]}});
+    const terminalPtyReader = pty.master.in;
+    const terminalPtyWriter = pty.master.out;
+    const shellStdin = pty.slave.in;
+    const shellStdout = pty.slave.out;
 
     let shellPid;
 
@@ -123,8 +126,8 @@ async function main(args) {
                     if (ansiFunction == "n") {
                         if (args[0] == 6) {
                             // See ANSI_GET_CURSOR_POSITION
-                            const cursorPosition = terminalGrid.cursorPosition();
-                            await write(cursorPositionReport(cursorPosition[1] + 1, cursorPosition[0] + 1), terminalPtyWriter);
+                            const [colIdx, rowIdx] = terminalGrid.cursorPosition();
+                            await write(cursorPositionReport(rowIdx + 1, colIdx + 1), terminalPtyWriter);
                         } else {
                             assert(false, "support more ansi 'n' functions");
                         }
@@ -142,7 +145,7 @@ async function main(args) {
     
                         text = text.slice(commandLen);
                     } else {
-                        console.error("Unhandled ansi function: ", ansiFunction, args, consumed, matched);
+                        console.error("Unhandled ansi function: ", ansiFunction, `(\\x${ansiFunction.codePointAt(0).toString(16)})`, args, consumed, matched);
                         return;
                     }
                 }

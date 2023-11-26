@@ -19,8 +19,10 @@ const ANSI_CURSOR_DOWN = `${ANSI_CSI}B`;
 const ANSI_CURSOR_FORWARD = `${ANSI_CSI}C`;
 const ANSI_CURSOR_BACK = `${ANSI_CSI}D`;
 const ANSI_CURSOR_END_OF_LINE = ansiSetCursorHorizontalAbsolute(999); // We assume fewer than 999 columns
-/** EL – Erase In Line */
+/** EL – Erase In Line (all) */
 const ANSI_ERASE_ENTIRE_LINE = `${ANSI_CSI}2K`
+/** EL – Erase In Line (to right)*/
+const ANSI_ERASE_LINE_TO_RIGHT = `${ANSI_CSI}0K`
 /** ED – Erase In Display */
 const ANSI_ERASE_ENTIRE_SCREEN = `${ANSI_CSI}2J`
 

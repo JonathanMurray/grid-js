@@ -71,6 +71,7 @@ class PseudoTerminal {
     }
 
     terminalSize() {
+        assert(this._terminalSize, "terminal size not set");
         return this._terminalSize;
     }
 
