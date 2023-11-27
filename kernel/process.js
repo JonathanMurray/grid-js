@@ -126,6 +126,7 @@ class Process {
 
     closeStream(streamId) {
         this.streams[streamId].close();
+        delete this.streams[streamId];
     }
 
     addStream(stream) {
@@ -139,7 +140,6 @@ class Process {
         this.exitValue = exitValue;
 
         for (let streamId in this.streams) {
-            console.log(this.pid, this.streams, this.streams[streamId]);
             this.streams[streamId].close();
         }
 

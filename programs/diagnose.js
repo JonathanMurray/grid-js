@@ -17,12 +17,14 @@ async function main(args) {
         }
     }
 
+    await syscall("sleep", {millis: 100});
+
     for (let [fileName, pid] of children) {
         await write(`${pid}/${fileName} -> `);
         await syscall("sendSignal", {signal: "interrupt", pid});
         await syscall("sendSignal", {signal: "kill", pid});
         try {
-            const result = await syscall("waitForExit", pid);
+            const result = await syscall("waitForExit", {pid});
             await writeln(JSON.stringify(result));
         } catch (e) {
             await writeln(`${e.name}: ${e.message}`);

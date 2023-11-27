@@ -120,7 +120,7 @@ function sandbox(code, args) {
                 code = data.startProcess.code;
     
                 //  DEBUG(expr) is a "macro", available to application code.
-                code = code.replaceAll(/DEBUG\(([^;]+)\)/g, `console.log("[${pid}]", "${programName} DEBUG($1):", $1)`)
+                code = code.replaceAll(/DEBUG\(([^;]+)\)/g, `console.log("[${pid}]", "${programName} DEBUG($1):", $1);`)
     
                 // in 'strict mode' eval:ed code is not allowed to declare new variables, so without this main doesn't make it out of the eval
                 code += "\nthis.main = main";

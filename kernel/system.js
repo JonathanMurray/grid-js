@@ -42,7 +42,6 @@ class OpenFileDescription {
     }
 }
 
-
 class System {
 
     constructor(files) {
@@ -80,6 +79,7 @@ class System {
             "diagnose",
             "echo",
             "editor", 
+            "inspect",
             "launcher", 
             "less",
             "lines",
@@ -99,6 +99,7 @@ class System {
             "short": new TextFile("hello world"),
             "empty": new TextFile("<script>\nfunction main() {}\n"),
             "log": new TextFile("<script>\nasync function main(args) { console.log(args); }\n"),
+            "config.json": new TextFile('{"prompt": "~ "}\n')
         };
         for (let program of programs) {
             const text = await System.fetchProgram(program);    
@@ -114,7 +115,7 @@ class System {
 
         system.windowManager = await WindowManager.init(spawnFromUi);
 
-        system.spawnProcess({programName: "terminal", args: [], streams: {1: new LogOutputStream("[TERMINAL]")}, ppid: null, pgid: "START_NEW", sid: null});
+        system.spawnProcess({programName: "terminal", args: ["shell"], streams: {1: new LogOutputStream("[TERMINAL]")}, ppid: null, pgid: "START_NEW", sid: null});
         //system.spawnProcess({programName: "sudoku", args: ["crash"], streams: {1: new LogOutputStream("[MAIN]"), 0: new NullStream()}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
@@ -145,9 +146,18 @@ class System {
         return await this.syscalls[syscall](proc, args);
     }
 
-    waitForOtherProcessToExit(pid, pidToWaitFor) {
+    waitForOtherProcessToExit(pid, pidToWaitFor, nonBlocking) {
         const proc = this.process(pid);
         const procToWaitFor = this.process(pidToWaitFor);
+
+        if (nonBlocking) {
+            if (procToWaitFor.exitValue != null) {
+                return procToWaitFor.exitValue;
+            } else {
+                throw {name: "SysError", message: "process is still running", errno: Errno.WOULDBLOCK};
+            }
+        }
+
         console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
         const self = this;
         return proc.waitForOtherToExit(procToWaitFor).then((exitValue) => {
@@ -259,8 +269,20 @@ class System {
         let procs = [];
         for (let pid of Object.keys(this.processes)) {
             const proc = this.process(pid);
-            procs.push({pid, sid: proc.sid, ppid: proc.ppid, programName: proc.programName, pgid: proc.pgid, exitValue: proc.exitValue, 
-                syscallCount: proc.syscallCount});
+            let streams = {};
+            for (const [streamId, stream] of Object.entries(proc.streams)) {
+                streams[streamId] = stream.type;
+            }
+            procs.push({
+                pid, 
+                sid: proc.sid, 
+                ppid: proc.ppid, 
+                programName: proc.programName, 
+                pgid: proc.pgid, 
+                exitValue: proc.exitValue, 
+                syscallCount: proc.syscallCount,
+                streams,
+            });
         }
         return procs;
     }
@@ -301,7 +323,7 @@ class System {
             }
         }
         if (!foundSome) {
-            console.log("no such process group");
+            console.log(`Couldn't send signal ${signal} to non-existent process group ${pgid}`);
         }
     }
 
@@ -341,7 +363,7 @@ class System {
             throw new SysError("only process group leader can create a pseudoterminal")
         }
 
-        const pty = new PseudoTerminal(this);
+        const pty = new PseudoTerminal(this, proc.sid);
         this.pseudoTerminals[proc.sid] = pty;
 
         const masterIn = proc.addStream(new PipeReader(pty.pipeToMaster));

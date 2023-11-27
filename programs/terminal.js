@@ -2,12 +2,13 @@
 
 async function main(args) {
 
+    const programName = args[0];
+    assert(programName != undefined);
+
     const window = await stdlib.createWindow("Terminal", [500, 400]);
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
-
-    
 
     const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
@@ -22,10 +23,11 @@ async function main(args) {
     await syscall("configurePseudoTerminal", {resize: {width: terminalSize[0], height: terminalSize[1]}});
     const terminalPtyReader = pty.master.in;
     const terminalPtyWriter = pty.master.out;
-    const shellStdin = pty.slave.in;
-    const shellStdout = pty.slave.out;
+    const childStdin = pty.slave.in;
+    const childStdout = pty.slave.out;
 
-    let shellPid;
+    let childPid;
+    let hasChildExited = false;
 
     await syscall("handleInterruptSignal");
 
@@ -35,12 +37,17 @@ async function main(args) {
         terminalGrid.draw(ctx, cellSize);
     }
 
+    draw();
+
     try {
-        shellPid = await syscall("spawn", {program: "shell", streamIds: [shellStdin, shellStdout],
+        childPid = await syscall("spawn", {program: programName, streamIds: [childStdin, childStdout],
                                  pgid: "START_NEW"});
 
-        const shellPgid = shellPid; // The shell is process group leader
-        await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: shellPgid});
+        await syscall("closeStream", {streamId: childStdin});
+        await syscall("closeStream", {streamId: childStdout});
+
+        const childPgid = childPid; // The child is process group leader
+        await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: childPgid});
 
         async function recomputeTerminalSize() {
             terminalSize = [Math.floor(canvas.width/ cellSize[0]), Math.floor(canvas.height / cellSize[1])];
@@ -70,6 +77,11 @@ async function main(args) {
         }
 
         window.onkeydown = (event) => {
+
+            if (hasChildExited) {
+                return;
+            }
+
             const key = event.key;
             let sequence;
     
@@ -115,6 +127,20 @@ async function main(args) {
         while (true) {
             let text = await syscall("read", {streamId: terminalPtyReader});
 
+            if (text == "") {
+                // EOF from the PTY. We have to check if it's caused by the child exiting.
+                try {
+                    await syscall("waitForExit", {pid: childPid, nonBlocking: true});
+                    hasChildExited = true;
+                    break;
+                } catch (e) {
+                    if (e.errno != "WOULDBLOCK") {
+                        throw e;
+                    }
+                    debugger;
+                }
+            }
+
             while (text != "") {
                 const unhandledAnsiFunction = terminalGrid.insert(text);
 
@@ -153,6 +179,14 @@ async function main(args) {
 
             draw();
         }
+
+        terminalGrid.insert("\nThe child process has shut down. This terminal can't be used anymore.");
+        draw();
+
+        while (true) {
+            await syscall("sleep", {millis: 60000});
+        }
+
     } catch (error) {
 
         console.warn(error);
@@ -162,14 +196,16 @@ async function main(args) {
             debugger;
         }
 
-        if (shellPid != undefined) {
-            // The shell is process group leader
-            await syscall("sendSignal", {signal: "kill", pgid: shellPid});
+        if (childPid != undefined) {
+            // The child is process group leader
+            await syscall("sendSignal", {signal: "kill", pgid: childPid});
         }
 
         if (error.name != "ProcessInterrupted") {
             throw error;
         }
+    } finally {
+        console.log("Terminal shutting down");
     }
 
 }

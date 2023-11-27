@@ -195,11 +195,13 @@ class Syscalls {
         return this.system.spawnProcess({programName: program, args: programArgs, streams, ppid: proc.pid, pgid, sid});
     }
 
-    waitForExit(proc, pidToWaitFor) {
-        if (!Number.isInteger(pidToWaitFor)) {
-            throw new SysError(`invalid syscall arg. Expected int but got: ${JSON.stringify(pidToWaitFor)}`)
+    waitForExit(proc, args) {
+        let {pid, nonBlocking} = validateSyscallArgs(args, ["pid"], ["nonBlocking"]);
+        if (!Number.isInteger(pid)) {
+            throw new SysError(`invalid pid arg: ${JSON.stringify(pid)}`)
         }
-        return this.system.waitForOtherProcessToExit(proc.pid, pidToWaitFor);
+
+        return this.system.waitForOtherProcessToExit(proc.pid, pid, nonBlocking);
     }
 
     graphics(proc, args) {

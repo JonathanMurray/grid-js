@@ -13,10 +13,10 @@ async function main(args) {
         const text = await syscall("read", {streamId});
         await write(text);
     } else {
-        let line = await readln();
-        while (line != null) {
-            await writeln(line);
-            line = await readln();
+        let text = await read();
+        while (text != "") {
+            await write(text);
+            text = await read();
         }
     }
 }

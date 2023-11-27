@@ -13,7 +13,7 @@ class PseudoTerminal {
     // Pseudoterminal a.k.a. PTY is used for IO between the terminal and the shell.
     // https://man7.org/linux/man-pages/man7/pty.7.html
     // https://unix.stackexchange.com/questions/117981/what-are-the-responsibilities-of-each-pseudo-terminal-pty-component-software
-    constructor(system) {
+    constructor(system, sid) {
         this.foreground_pgid = null;
 
         this._mode = PseudoTerminalMode.LINE;
@@ -22,19 +22,20 @@ class PseudoTerminal {
         this.pipeToSlave = new Pipe();
         this.pipeToMaster = new Pipe();
         this.masterWriter = {
+            type: `pty-master-writer(${sid})`,
             requestWrite: (writer) => {
                 let text = writer();
                 if (this._mode == PseudoTerminalMode.LINE) {
                     this.lineDiscipline.handleTextFromMaster(text);
                 } else if (this._mode == PseudoTerminalMode.CHARACTER) {
-                    this.pipeToSlave.requestWrite(this._createInfallibleWriter(text));
+                    this.writeToSlave(text);
                 } else {
                     assert(this._mode == PseudoTerminalMode.CHARACTER_AND_SIGINT);
                     let buf = "";
                     while (text.length > 0) {
                         if (text[0] == ASCII_END_OF_TEXT) {
                             if (buf.length > 0) {
-                                this.pipeToSlave.requestWrite(this._createInfallibleWriter(buf));
+                                this.writeToSlave(buf);
                                 buf = "";
                             }
                             this.ctrlC();
@@ -44,7 +45,7 @@ class PseudoTerminal {
                         text = text.slice(1);
                     }
                     if (buf.length > 0) {
-                        this.pipeToSlave.requestWrite(this._createInfallibleWriter(buf));
+                        this.writeToSlave(buf);
                         buf = "";
                     }
                 }
@@ -54,15 +55,16 @@ class PseudoTerminal {
             }
         }
         this.slaveWriter = {
+            type: `pty-slave-writer(${sid})`,
             requestWrite: (writer) => {
                 const text = writer();
-                this.pipeToMaster.requestWrite(this._createInfallibleWriter(text));
+                this.writeToMaster(text);
             },
             close: () => {
-                console.log("TODO: slaveWriter.close()");
+                this.pipeToMaster.onWriterClose();
             },
             duplicate: () => {
-                console.log("TODO: slaveWriter.duplicate()");
+                this.pipeToMaster.onWriterDuplicate();
                 return this.slaveWriter;
             }
         }
@@ -89,8 +91,9 @@ class PseudoTerminal {
         } else if ("resize" in config) {
             assert("width" in config.resize && "height" in config.resize);
             this._terminalSize = [config.resize.width, config.resize.height];
-            const pgid = this.foreground_pgid;
-            this._system.sendSignalToProcessGroup("terminalResize", pgid);
+            if (this.foreground_pgid != null) {
+                this._system.sendSignalToProcessGroup("terminalResize", this.foreground_pgid);
+            }
             return;
         }
         throw new SysError(`invalid pty config: ${JSON.stringify(config)}`);
@@ -107,6 +110,14 @@ class PseudoTerminal {
             return text;
         }
         return writer;
+    }
+
+    writeToMaster(text) {
+        this.pipeToMaster.requestWrite(this._createInfallibleWriter(text));
+    }
+
+    writeToSlave(text) {
+        this.pipeToSlave.requestWrite(this._createInfallibleWriter(text));
     }
 }
 
@@ -156,7 +167,7 @@ class LineDiscipline {
             } 
             
             if (echo) {
-                this.pty.pipeToMaster.requestWrite(this.pty._createInfallibleWriter(text.slice(0, matched)));
+                this.pty.writeToMaster(text.slice(0, matched));
             }
             text = text.slice(matched);
         }
@@ -166,25 +177,26 @@ class LineDiscipline {
         // https://unix.stackexchange.com/a/414246
         const text = ASCII_BACKSPACE + " " + ASCII_BACKSPACE;
         this.line.backspace();
-        this.pty.pipeToMaster.requestWrite(this.pty._createInfallibleWriter(text));
+        this.pty.writeToMaster(text);
     }
 
     ctrlD() {
-        const text = this.line.text + ASCII_END_OF_TRANSMISSION;
+        const text = this.line.text;
         this.line.reset();
-        this.pty.pipeToSlave.requestWrite(this.pty._createInfallibleWriter(text));
+        // Send the line. If it's empty, this will be interpreted as EOF by the pipe, which is by design.
+        this.pty.writeToSlave(text); 
     }
 
     newline() {
         const text = this.line.text + "\n";
         this.line.reset();
-        this.pty.pipeToSlave.requestWrite(this.pty._createInfallibleWriter(text));
+        this.pty.writeToSlave(text);
     }
 }
 
 class Pipe {
     constructor() {
-        this.buffer = "";
+        this.buffer = [];
         this.waitingReaders = [];
         this.restrictReadsToProcessGroup = null;
         this.numReaders = 1;
@@ -199,9 +211,7 @@ class Pipe {
     onWriterClose() {
         this.numWriters --;
         assert(this.numWriters >= 0);
-        if (this.numWriters == 0) {
-            this.buffer += ASCII_END_OF_TRANSMISSION; // This will signal end of stream to anyone reading it
-        }
+        this.handleWaitingReaders();
     }
     
     onReaderDuplicate() {
@@ -229,9 +239,7 @@ class Pipe {
         if (nonBlocking) {
             if (this.buffer.length > 0) {
                 if (this.isProcAllowedToRead(proc)) {
-                    if (reader({text: this.buffer})) {
-                        this.buffer = "";
-                    }
+                    this._invokeReader(reader);
                 } else {
                     reader({error: {name: "SysError", message: "not allowed to read", errno: Errno.WOULDBLOCK}});
                 }
@@ -253,13 +261,12 @@ class Pipe {
         }
 
         const text = writer();
-        this.buffer += text;
+        this.buffer = this.buffer.concat(text);
         this.handleWaitingReaders();
     }
 
     handleWaitingReaders() {
-
-        if (this.buffer.length > 0) {
+        if (this.buffer.length > 0 || this.numWriters == 0) {
             if (this.waitingReaders.length > 0) {
                 for (let i = 0; i < this.waitingReaders.length;) {
                     const {reader, proc} = this.waitingReaders[i];
@@ -268,10 +275,8 @@ class Pipe {
                         this.waitingReaders.splice(i, 1);
                     } else if (this.isProcAllowedToRead(proc)) {
                         this.waitingReaders.splice(i, 1);
-                        // Check that a read actually occurs. This is necessary because of readAny()
-                        if (reader({text: this.buffer})) {
-                            this.buffer = "";
-                            return true; 
+                        if (this._invokeReader(reader)) {
+                            return true;
                         }
                     } else {
                         // The reader was left in the list, and we move onto the next one
@@ -282,12 +287,43 @@ class Pipe {
         }
         return false;
     }
+
+    _invokeReader(reader) {
+        let text = "";
+        let n = 0;
+        if (this.buffer.length == 0) {
+            assert(this.numWriters == 0);
+            // All writers have been closed.
+            // All further reads on this pipe will give EOF
+        } else if (this.buffer[0] == "") {
+            // A writer has pushed EOF to the buffer.
+            // It will result in EOF for exactly one read.
+            n = 1;
+        } else {
+            // Offer everything up until (but excluding) EOF
+            for (let i = 0; i < this.buffer.length; i++) {
+                if (this.buffer[i] == "") {
+                    break;
+                }
+                text += this.buffer[i];
+                n += 1;
+            }
+        }
+
+        // Check that a read actually occurs. This is necessary because of readAny()
+        if (reader({text})) {
+            this.buffer = this.buffer.slice(n);
+            return true; 
+        }
+        return false;
+    }
 }
 
 class PipeReader {
     constructor(pipe) {
         this.pipe = pipe;
         this.isOpen = true;
+        this.type = "pipe-reader";
     }
 
     requestRead(args) {
@@ -317,6 +353,7 @@ class PipeWriter {
     constructor(pipe) {
         this.pipe = pipe;
         this.isOpen = true;
+        this.type = "pipe-writer";
     }
 
     requestWrite(writer) {
@@ -346,6 +383,7 @@ class FileStream {
     constructor(openFileDescription) {
         this.openFileDescription = openFileDescription;
         this.isOpen = true;
+        this.type = "file-stream";
     }
 
     requestWrite(writer) {
@@ -375,6 +413,10 @@ class FileStream {
 }
 
 class NullStream {
+    constructor() {
+        this.type = "null-stream";
+    }
+
     requestWrite(writer) {
         writer(); // Whatever was written is discarded
     }
@@ -393,6 +435,7 @@ class NullStream {
 class LogOutputStream {
     constructor(label) {
         this._label = label;
+        this.type = "log-stream";
     }
 
     requestWrite(writer) {

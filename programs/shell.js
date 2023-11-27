@@ -1,11 +1,15 @@
 "use strict";
 
-const PROMPT = "> ";
-
 let backgroundedJobs = [];
 let history;
 
 async function main(args) {
+
+    const configStreamId = await syscall("openFile", {fileName: "config.json"});
+    let config = await read(configStreamId);
+    await syscall("closeStream", {streamId: configStreamId});
+    config = JSON.parse(config)
+    const prompt = config.prompt;
 
     await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
 
@@ -19,12 +23,12 @@ async function main(args) {
         const [_line, startCol] = await stdlib.terminal.getCursorPosition();
 
         function line() {
-            return `${ansiSetCursorHorizontalAbsolute(startCol)}${ANSI_ERASE_LINE_TO_RIGHT}${PROMPT}${editLine.text}`;
+            return `${ansiSetCursorHorizontalAbsolute(startCol)}${ANSI_ERASE_LINE_TO_RIGHT}${prompt}${editLine.text}`;
         }
 
         while (true) {
             
-            await write(line() + ansiSetCursorHorizontalAbsolute(startCol + PROMPT.length + editLine.cursor));
+            await write(line() + ansiSetCursorHorizontalAbsolute(startCol + prompt.length + editLine.cursor));
 
             let received = await read();
 
@@ -85,6 +89,7 @@ async function main(args) {
                     editLine.reset();
                 } else if (ctrlD) {
                     await write(line() + "^D\n");
+                    await syscall("exit");
                     editLine.reset();
                 } else if (up) {
                     const selectedLine = history.onCursorUp();
@@ -289,7 +294,7 @@ async function runJobInForeground(job) {
     for (let i = job.pids.length - 1; i >= 0; i--) {
         const pid = job.pids[i];
         try {
-            await syscall("waitForExit", pid);
+            await syscall("waitForExit", {pid});
         } catch (e) {
             console.log(`Shell caught error when waiting for foreground process ${pid}: `, e);
         }

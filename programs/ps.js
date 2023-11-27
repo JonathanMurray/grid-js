@@ -1,14 +1,13 @@
 "use strict";
 
-
-
 async function main(args) {
     const procs = await syscall("listProcesses");
     if (procs.length > 0) {
         await writeln("sid  pgid  ppid  pid  program   status")
         for (let proc of procs) {
             const ppid = formatPpid(proc.ppid);
-            await writeln(pad(proc.sid, 5) + pad(proc.pgid, 6) + pad(ppid, 6) + pad(proc.pid, 5) + pad(proc.programName, 10) + formatExitValue(proc.exitValue))
+            await writeln(pad(proc.sid, 5) + pad(proc.pgid, 6) + pad(ppid, 6) + 
+                pad(proc.pid, 5) + pad(proc.programName, 10) + formatExitValue(proc.exitValue))
         }
     } else {
         await writeln("<no running processes>");
