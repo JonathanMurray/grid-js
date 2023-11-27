@@ -68,7 +68,7 @@
 .program-window {
     position: absolute; 
 
-    background: white; 
+    background: lightgray; 
     user-select: none; /* prevent cursor-change and ability to copy-paste text */
     border: 2px solid lightgray;
 }
@@ -81,7 +81,8 @@
     text-wrap: nowrap;
     overflow: hidden;
 
-    background-color: rgb(240, 240, 240);
+    text-align: center;
+    background-color: rgb(142, 225, 245);
     border-bottom: 2px solid lightgray;
     padding-left: 6px;
     padding-top: 3px;
@@ -110,6 +111,26 @@
 }
 .titlebar-button:hover {
     color: red;
+}
+
+.menubar {
+    background-color: rgb(240, 240, 240);
+    padding: 1px;
+}
+.menubar-button {
+    padding-left: 5px;
+    padding-right: 5px;
+
+    font-size: 14px;
+    font-weight: normal; 
+    color: black;
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+.menubar-button:hover {
+    border: 1px solid darkgray;
+    border-radius: 2px;
+    background: white;
 }
 
 .canvas-wrapper {

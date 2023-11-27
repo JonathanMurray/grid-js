@@ -4,7 +4,7 @@ async function main(args) {
 
     const programName = args[0] || "shell";
 
-    const window = await stdlib.createWindow("Terminal", [500, 400]);
+    const window = await stdlib.createWindow("Terminal", [500, 400], {menubarButtons: [["Font -", "ZOOM_OUT"], ["Font +", "ZOOM_IN"]]});
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
@@ -77,6 +77,15 @@ async function main(args) {
             const updated = terminalGrid.scroll(event.deltaY);
             if (updated) {
                 draw();
+            }
+        }
+
+        window.onbutton = ({buttonId}) => {
+            if (buttonId == "ZOOM_IN") {
+                changeFontSize(1.11);
+            } else {
+                assert(buttonId == "ZOOM_OUT");
+                changeFontSize(0.9);
             }
         }
 

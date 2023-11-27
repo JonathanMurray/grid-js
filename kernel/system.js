@@ -315,8 +315,8 @@ class System {
         throw new SysError("no such program file: " + programName);
     }
 
-    createWindow(title, size, proc, resizable) {
-        return this.windowManager.createWindow(title, size, proc, resizable);
+    createWindow(title, size, proc, resizable, menubarButtons) {
+        return this.windowManager.createWindow(title, size, proc, resizable, menubarButtons);
     }
 
     onProcessExit(proc, exitValue) {

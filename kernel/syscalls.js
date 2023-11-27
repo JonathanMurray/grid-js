@@ -205,8 +205,9 @@ class Syscalls {
     }
 
     graphics(proc, args) {
-        let {title, size, resizable} = validateSyscallArgs(args, ["title", "size", "resizable"]);
-        return this.system.createWindow(title, size, proc, resizable);
+        let {title, size, resizable, menubarButtons} = validateSyscallArgs(args, ["title", "size", "resizable"], ["menubarButtons"]);
+        menubarButtons = menubarButtons || [];
+        return this.system.createWindow(title, size, proc, resizable, menubarButtons);
     }
 
     sleep(proc, args) {

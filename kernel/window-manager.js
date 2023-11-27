@@ -292,7 +292,7 @@ class WindowManager {
     }
 
     static renderTemplate(template, args) {
-        const regex = /{{([a-z]+)}}/;
+        const regex = /{{([a-zA-Z]+)}}/;
         for (let i = 0; i < 100; i ++) {
             const match = template.match(regex);
             if (match == null) {
@@ -326,7 +326,7 @@ class WindowManager {
         }
     }
 
-    async createWindow(title, [width, height], proc, resizable) {
+    async createWindow(title, [width, height], proc, resizable, menubarButtons) {
         const pid = proc.pid;
         title = `${title} (pid=${pid})`
 
@@ -415,9 +415,19 @@ class WindowManager {
             this.sendInputToProcess(win, {name: "closeWasClicked"});
         });
 
+        const menubar = winElement.querySelector(".menubar");
+        for (const [text, buttonId] of menubarButtons) {
+            const buttonDoc = await WindowManager.fetchAndRenderTemplate("kernel/menubar-button-template.html", {buttonId, text});
+            const button = buttonDoc.querySelector(".menubar-button");
+            menubar.appendChild(button);
+            button.addEventListener("click", (event) => {
+                const buttonId = event.target.dataset.buttonId;
+                this.sendInputToProcess(win, {name: "menubarButtonWasClicked", event: {buttonId}});
+            });
+        }
+
         const titlebar = winElement.querySelector(".titlebar");
         titlebar.addEventListener("mousedown", (event) => {
-            console.log("mousedown TITLEBAR"); //TODO
             const {mouseX, mouseY} = this.translateMouse(event);
             if (this.hoveredResize == null) {
                 const rect = this.rect(winElement);

@@ -30,6 +30,8 @@ class Snake {
         
         this.previousTimestamp;
         this.timeUntilNextFrame = Snake.FRAME_DURATION;
+
+        this._bufferedRestartCommand = false;
         
         writeln("Use WASD or arrow keys for movement.");
     }
@@ -54,38 +56,47 @@ class Snake {
         this.draw();
     }
 
-    handleEvent(name, event) {
-        if (name == "keydown") {
-            const key = event.key;
-            if (key == "ArrowLeft" || key == "A" || key == "a") {
-                if (this.direction != Snake.RIGHT) {
-                    this.commandedDirection = Snake.LEFT;
-                }
-            } else if (key == "ArrowRight" || key == "D" || key == "d") {
-                if (this.direction != Snake.LEFT) {
-                    this.commandedDirection = Snake.RIGHT;
-                }
-            } else if (key == "ArrowUp" || key == "W" || key == "w") {
-                if (this.direction != Snake.DOWN) {
-                    this.commandedDirection = Snake.UP;
-                } 
-            } else if (key == "ArrowDown" || key == "S" || key == "s") {
-                if (this.direction != Snake.UP) {
-                    this.commandedDirection = Snake.DOWN;
-                }
-            }  else if (key == " ") {
-                if (this.gameOver) {
-                    this.resetGameState();
-                    this.run();
-                }
+    handleKeydown(event) {
+        const key = event.key;
+        if (key == "ArrowLeft" || key == "A" || key == "a") {
+            if (this.direction != Snake.RIGHT) {
+                this.commandedDirection = Snake.LEFT;
+            }
+        } else if (key == "ArrowRight" || key == "D" || key == "d") {
+            if (this.direction != Snake.LEFT) {
+                this.commandedDirection = Snake.RIGHT;
+            }
+        } else if (key == "ArrowUp" || key == "W" || key == "w") {
+            if (this.direction != Snake.DOWN) {
+                this.commandedDirection = Snake.UP;
+            } 
+        } else if (key == "ArrowDown" || key == "S" || key == "s") {
+            if (this.direction != Snake.UP) {
+                this.commandedDirection = Snake.DOWN;
+            }
+        }  else if (key == " ") {
+            if (this.gameOver) {
+                this.restart();
             }
         }
     }
 
+    restart() {
+        this._bufferedRestartCommand = true;
+    }
+
     async run() {
-        while (!this.gameOver) {
-            this.runOneFrame();
+        while (true) {
+            if (!this.gameOver) {
+                this.runOneFrame();
+            }
+           
             await syscall("sleep", {millis: Snake.FRAME_DURATION});
+            
+            if (this._bufferedRestartCommand) {
+                this._bufferedRestartCommand = false;
+                this.resetGameState();
+            }
         }
     }
 
@@ -198,14 +209,18 @@ async function main(args) {
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const window = await stdlib.createWindow("Snake", [324, 324]);
+    const window = await stdlib.createWindow("Snake", [324, 324], {menubarButtons: [["Start over", "START_OVER"]]});
     const snake = new Snake(window.canvas);
+
+    window.onbutton = ({buttonId}) => {
+        snake.restart();
+    }
 
     window.onkeydown = (event) => {
         if (event.ctrlKey && event.key == "c") { 
             writeln("Snake shutting down").finally(resolvePromise);
         } else {
-            snake.handleEvent("keydown", event);
+            snake.handleKeydown(event);
         }
     };
 
