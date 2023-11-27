@@ -2,8 +2,7 @@
 
 async function main(args) {
 
-    const programName = args[0];
-    assert(programName != undefined);
+    const programName = args[0] || "shell";
 
     const window = await stdlib.createWindow("Terminal", [500, 400]);
 
@@ -67,6 +66,11 @@ async function main(args) {
             canvas.height = event.height;
 
             recomputeTerminalSize()
+        }
+
+        window.onclose = async (event) => {
+            await writeln("Terminal shutting down. (Window was closed.)");
+            await syscall("exit");
         }
 
         window.onwheel = (event) => {

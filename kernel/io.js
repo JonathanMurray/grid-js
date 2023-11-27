@@ -104,20 +104,20 @@ class PseudoTerminal {
         this.pipeToSlave.setRestrictReadsToProcessGroup(pgid);
     }
 
-    _createInfallibleWriter(text) {
+    _createCarelessWriter(text) {
         function writer(error)  {
-            assert(error == undefined);
+            console.assert(error == undefined, "Failed writing to PTY");
             return text;
         }
         return writer;
     }
 
     writeToMaster(text) {
-        this.pipeToMaster.requestWrite(this._createInfallibleWriter(text));
+        this.pipeToMaster.requestWrite(this._createCarelessWriter(text));
     }
 
     writeToSlave(text) {
-        this.pipeToSlave.requestWrite(this._createInfallibleWriter(text));
+        this.pipeToSlave.requestWrite(this._createCarelessWriter(text));
     }
 }
 

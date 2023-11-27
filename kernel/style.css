@@ -76,7 +76,7 @@
     outline: solid rgb(64, 109, 207) 1px;
 }
 
-.program-window-header {
+.titlebar {
     /* Header shouldn't prevent window resize, and its contents shouldn't "spill out" visibly */
     text-wrap: nowrap;
     overflow: hidden;
@@ -90,8 +90,26 @@
     font-size: 18px; 
     height: 25px;
 }
-.program-window.focused .program-window-header {
+.program-window.focused .titlebar {
     background-color: rgb(55, 202, 239);
+}
+
+.titlebar-button {
+    float: right;
+    width: 23px;
+    height: 23px;
+    position: absolute;
+    top: 2px;
+    right: 2px;
+
+    color: white;
+    border: 1px solid lightgray;
+    cursor: pointer;
+    text-align: center;
+    vertical-align: middle;
+}
+.titlebar-button:hover {
+    color: red;
 }
 
 .canvas-wrapper {

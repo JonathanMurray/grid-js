@@ -1,7 +1,7 @@
 
 const ID_WINDOW_PREFIX = "program-window-";
 const CLASS_WINDOW = "program-window";
-const CLASS_HEADER = "program-window-header";
+const CLASS_TITLEBAR = "titlebar";
 const CLASS_FOCUSED = "focused";
 
 const CURSOR_RESIZE_CLASS_NAMES = {
@@ -108,9 +108,9 @@ class WindowManager {
                 if (newWidth != undefined) {
                     canvasWrapper.style.width = newWidth;
                     
-                    const windowHeader = window.element.getElementsByClassName(CLASS_HEADER)[0];
-                    const padding = Number.parseInt(windowHeader.style.paddingLeft.replace("px", ""));
-                    windowHeader.style.width = newWidth - padding;
+                    const titlebar = window.element.getElementsByClassName(CLASS_TITLEBAR)[0];
+                    const padding = Number.parseInt(titlebar.style.paddingLeft.replace("px", ""));
+                    titlebar.style.width = newWidth - padding;
                 }
                 if (newHeight != undefined) {
                     canvasWrapper.style.height = newHeight;
@@ -140,7 +140,7 @@ class WindowManager {
                 const canvasRect = this.rect(canvas);
                 const resizeEvent = {width: canvasRect.width * CANVAS_SCALE, height: canvasRect.height * CANVAS_SCALE};
                 canvas.style.display = "none"; // Hide during resize to reduce glitching
-                this.sendInputToProcess(window, {name: "resize", event: resizeEvent});
+                this.sendInputToProcess(window, {name: "windowWasResized", event: resizeEvent});
                 this.ongoingResize = null;
             }
         });
@@ -406,8 +406,18 @@ class WindowManager {
             }
         });
 
-        const header = winElement.querySelector(".program-window-header");
-        header.addEventListener("mousedown", (event) => {
+        const closeButton = winElement.querySelector(".titlebar-button");
+        closeButton.addEventListener("mousedown", (event) => {
+            // Prevent drag
+            event.stopPropagation();
+        });
+        closeButton.addEventListener("click", (event) => {
+            this.sendInputToProcess(win, {name: "closeWasClicked"});
+        });
+
+        const titlebar = winElement.querySelector(".titlebar");
+        titlebar.addEventListener("mousedown", (event) => {
+            console.log("mousedown TITLEBAR"); //TODO
             const {mouseX, mouseY} = this.translateMouse(event);
             if (this.hoveredResize == null) {
                 const rect = this.rect(winElement);
@@ -416,6 +426,7 @@ class WindowManager {
                 this.draggingWindow = {window: win, offset: [mouseX - left, mouseY - top]};
             }
         });
+
 
         // User input to process
         canvas.addEventListener("mousemove", (event) => {
@@ -445,12 +456,9 @@ class WindowManager {
         const position = this.positionNewWindow(rect.width, rect.height);
         winElement.style.left = position[0];
         winElement.style.top = position[1];
-    
-        
 
         this.windows[pid] = win;
         console.log("Added window. ", this.windows);
-
 
         const dockItem = document.createElement("div");
         dockItem.id = `dock-item-${pid}`;
@@ -469,8 +477,6 @@ class WindowManager {
         const offscreenCanvas = canvas.transferControlToOffscreen();
         return offscreenCanvas;
     }
-
-
     
     removeWindowIfExists(pid) {
         const win = this.getWindow(pid);
