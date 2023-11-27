@@ -177,11 +177,84 @@ class System {
         if ("syscall" in message.data) {
             // Sandboxed programs send us syscalls from iframe
             this.handleSyscallMessage(pid, message);
+        } else if ("crashed" in message.data) {
+            this.handleProcessCrashed(pid, message.data.crashed)
         } else if ("resizeDone" in message.data) {
             this.windowManager.onResizeDone(pid);
         } else {
             console.error("Unhandled message from worker: ", message);
         }
+    }
+
+    handleProcessCrashed(pid, error) {
+        const proc = this.processes[pid];
+        assert(proc != undefined);
+
+        const stdout = proc.streams[1];
+        if (stdout != undefined) {
+
+            const programName = proc.programName;
+
+            function writeErrorLine(text) {
+                function writer(error)  {
+                    console.assert(error == undefined, "Failed writing crash message", text);
+                    return text + "\n";
+                }
+                stdout.requestWrite(writer);
+            }
+
+            writeErrorLine(`${ANSI_CSI}37;41m[${pid}] Process crashed!${ANSI_CSI}39;49m`);
+
+            if (error.stack) {
+                const stackLines = error.stack.split('\n');
+    
+                let hasStartedWritingStackLines = false;
+
+                let deepestStackPosition = null;
+    
+                const regex = /\((.+):(.+):(.+)\)/;
+                for (let stackLine of stackLines) {
+                    console.log("STACK LINE: ", stackLine);
+                    const match = stackLine.match(regex);
+                    if (match) {
+                        const fileName = match[1];
+                        console.log(`FILENAME: '${fileName}'`)
+                        if (fileName.startsWith("eval at") && fileName.endsWith("<anonymous>")) {
+                            const headerLen = 1; // Runnable file starts with a header that is stripped off before we execute it
+
+                            const lineNumber = parseInt(match[2]) + headerLen;
+                            const colNumber = parseInt(match[3]);
+                            
+                            if (deepestStackPosition == null) {
+                                deepestStackPosition = [lineNumber, colNumber];
+                            }
+                            const translatedStackLine = stackLine.replace(regex, `(${programName}:${lineNumber}:${colNumber})`);
+                            console.log(`TRANSLATED LINE: '${translatedStackLine}'`);
+                            writeErrorLine(translatedStackLine);
+                            hasStartedWritingStackLines = true;
+                        }
+                    } else if (!hasStartedWritingStackLines) {
+                        writeErrorLine(stackLine);
+                    }
+                }
+
+                if (deepestStackPosition != null) {
+                    const [lineNumber, colNumber] = deepestStackPosition;
+                    const code = this.files[programName].text;
+                    let line = code.split("\n")[lineNumber - 1];
+                    const maxLen = 25;
+                    if (line.length > maxLen) {
+                        line = line.slice(0, maxLen) + " [...]";
+                    }
+                    const lineNumString = lineNumber.toString();
+                    writeErrorLine(`\n${lineNumString} | ${line}`);
+                    writeErrorLine(" ".padEnd(lineNumString.length + 2 + colNumber) + `${ANSI_CSI}31m^${ANSI_CSI}39m`);
+                }
+            }
+
+        }
+
+        this.onProcessExit(proc, error);
     }
 
     handleSyscallMessage(pid, message) {
@@ -249,7 +322,8 @@ class System {
     onProcessExit(proc, exitValue) {
         const pid = proc.pid;
         assert(pid != undefined);
-        console.log(`[${pid}] PROCESS EXIT`)
+        console.log("HERE"); //TODO
+        console.log(`[${pid}] PROCESS EXIT`, exitValue)
         if (proc.exitValue == null) {
             proc.onExit(exitValue);
             this.windowManager.removeWindowIfExists(pid);

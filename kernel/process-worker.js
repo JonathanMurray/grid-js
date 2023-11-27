@@ -63,40 +63,9 @@ function sandbox(code, args) {
     }
 
     async function onProgramCrashed(error) {
-
         console.warn(`[${pid}] Program crashed: `, error);
         console.warn(`[${pid}] Caused by: `, error.cause);
-
-        await writeln(`${ANSI_CSI}37;41m[${pid}] Process crashed!${ANSI_CSI}39;49m`);
-        
-        if (error.stack) {
-            const stackLines = error.stack.split('\n');
-
-            let hasStartedWritingStackLines = false;
-
-            const regex = /\((.+):(.+):(.+)\)/;
-            for (let stackLine of stackLines) {
-                //console.log("STACK LINE: ", stackLine);
-                const match = stackLine.match(regex);
-                if (match) {
-                    const fileName = match[1];
-                    //console.log(`FILENAME: '${fileName}'`)
-                    if (fileName.startsWith("eval at") && fileName.endsWith("<anonymous>")) {
-                        const headerLen = 1; // Runnable file starts with a header that is stripped off before we execute it
-                        const lineNumber = parseInt(match[2]) + headerLen;
-                        const colNumber = parseInt(match[3]);
-                        const translatedStackLine = stackLine.replace(regex, `(${programName}:${lineNumber}:${colNumber})`);
-                        //console.log(`TRANSLATED LINE: '${translatedStackLine}'`);
-                        await writeln(translatedStackLine);
-                        hasStartedWritingStackLines = true;
-                    }
-                } else if (!hasStartedWritingStackLines) {
-                    await writeln(stackLine);
-                }
-            }
-        }
-        
-        await syscall('exit', error);
+        postMessage({crashed: error});
     }
         
     addEventListener("message", message => {

@@ -12,7 +12,7 @@ async function main(args) {
     const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
     
-    let cellSize = [11, 18];
+    let cellSize = [10, 20];
 
     let terminalSize = [Math.floor(canvas.width / cellSize[0]), Math.floor(canvas.height / cellSize[1])];
 
