@@ -87,10 +87,12 @@ async function main(args) {
                     await write(line() + "^C\n");
                     history.clearSelection();
                     editLine.reset();
+                    return "";
                 } else if (ctrlD) {
                     await write(line() + "^D\n");
                     await syscall("exit");
                     editLine.reset();
+                    return "";
                 } else if (up) {
                     const selectedLine = history.onCursorUp();
                     if (selectedLine != null) {
@@ -209,17 +211,18 @@ async function handleInputLine(input) {
 
 const builtins = {
     help: async function(args) {
-        for (let line of [
-            "Example commands:", 
-            "-------------------",
-            "editor:            text editor", 
-            "sudoku:            mouse-based game", 
-            "time:              show current time",
-            "textcolor <color>: change text color",
-            "bgcolor <color>:   change background color"
-        ]) {
-            await writeln(line);
+
+        await writeln(ansiBackgroundColor("Shell builtins:", 44));
+        for (let name of Object.keys(builtins)) {
+            await writeln(`  ${name}`);
         }
+
+        const fileNames = await syscall("listFiles");
+        await writeln(ansiBackgroundColor("Files:", 44));
+        for (let fileName of fileNames) {
+            await write(`${fileName}  `);
+        }
+        await writeln("");
     },
 
     textcolor: async function(args) {
@@ -240,19 +243,6 @@ const builtins = {
 
     clear: async function(args) {
         await stdlib.terminal.clear();
-    },
-
-    kill: async function(args) {
-        if (args.length >= 1) {
-            const pid = args[0];
-            try {
-                await syscall("sendSignal", {signal: "kill", pid});
-            } catch (e) {
-                await writeError(e.message);
-            }
-        } else {
-            await writeError("missing pid argument");
-        }
     },
 
     fg: async function(args) {

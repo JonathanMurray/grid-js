@@ -24,7 +24,7 @@ const CANVAS_SCALE = window.devicePixelRatio; // Change to 1 on retina screens t
 class WindowManager {
 
     static async init(launchProgram) {
-        const doc = await WindowManager.fetchAndRenderTemplate("kernel/screen-area.html");
+        const doc = await WindowManager.fetchAndRenderTemplate("kernel/html/screen-area.html");
         const screenArea = doc.querySelector("#screen-area");
         document.querySelector("body").appendChild(screenArea);
         return new WindowManager(screenArea, launchProgram);
@@ -37,9 +37,10 @@ class WindowManager {
         this.draggingWindow = null;
         this.maxZIndex = 1;
         this.windows = {};
-        this.focusedWindow = null;
         this.hoveredResize = null;
         this.ongoingResize = null;
+
+        this.focused = null;
 
         this.isEasyAimEnabled = false;
 
@@ -59,13 +60,14 @@ class WindowManager {
                 const {window, offset} = this.draggingWindow;
                 window.element.style.left = mouseX - offset[0];
                 window.element.style.top = mouseY - offset[1];
-                this.focusWindow(window);
+                //this.focusWindow(window);
+                this.setFocused({window})
             } else if (this.ongoingResize != null) {
                 const {window, anchor, offset} = this.ongoingResize;
 
-                const rect = this.rect(window.element);
+                const rect = this.rectWithinScreenArea(window.element);
                 const canvasWrapper = window.element.querySelector(".canvas-wrapper");
-                const canvasRect = this.rect(canvasWrapper);
+                const canvasRect = this.rectWithinScreenArea(canvasWrapper);
 
                 let newX;
                 let newY;
@@ -121,13 +123,15 @@ class WindowManager {
 
         window.addEventListener("mousedown", (event) => {
             // Mouse clicked on the desktop environment outside any of the windows
-            this.unfocusWindow();
+            //this.unfocusWindow();
+            this.setFocused(null);
         });
 
         window.addEventListener("mouseup", (event) => {
             if (this.draggingWindow != null) {
                 const {window} = this.draggingWindow;
-                this.focusWindow(window);
+                this.setFocused({window});
+                //this.focusWindow(window);
                 this.draggingWindow = null;
             }
 
@@ -137,7 +141,7 @@ class WindowManager {
                 const canvas = window.element.querySelector("canvas");
                 canvas.style.width = canvasWrapper.style.width;
                 canvas.style.height = canvasWrapper.style.height;
-                const canvasRect = this.rect(canvas);
+                const canvasRect = this.rectWithinScreenArea(canvas);
                 const resizeEvent = {width: canvasRect.width * CANVAS_SCALE, height: canvasRect.height * CANVAS_SCALE};
                 canvas.style.display = "none"; // Hide during resize to reduce glitching
                 this.sendInputToProcess(window, {name: "windowWasResized", event: resizeEvent});
@@ -166,7 +170,6 @@ class WindowManager {
                 // default = zoom webpage
                 event.preventDefault();
             }
-
             if (event.key == "Control") {
                 // default = Chrome menu takes focus
                 event.preventDefault();
@@ -174,8 +177,8 @@ class WindowManager {
                 this.enableEasyAim();
             }
 
-            if (this.focusedWindow != null) {
-                this.sendInputToProcess(this.focusedWindow, {name: "keydown", event: {key: event.key, ctrlKey: event.ctrlKey}});
+            if (this.focused != null && "window" in this.focused) {
+                this.sendInputToProcess(this.focused.window, {name: "keydown", event: {key: event.key, ctrlKey: event.ctrlKey}});
             }
         });
 
@@ -190,14 +193,15 @@ class WindowManager {
         for (let pid in this.windows) {
             const win = this.windows[pid];
             if (win.process.programName == PROGRAM_LAUNCHER) {
-                this.focusWindow(win);
+                this.setFocused({window: win});
+                //this.focusWindow(win);
                 return;
             }
         }
         this.spawnProgram(PROGRAM_LAUNCHER);
     }
 
-    rect(element) {
+    rectWithinScreenArea(element) {
         const rect = element.getBoundingClientRect();
         return {x: rect.x - this.screenRect.x, y: rect.y - this.screenRect.y, width: rect.width, height: rect.height};
     }
@@ -241,37 +245,44 @@ class WindowManager {
     focusFrontMostWindow() {
         const window = this.getFrontMostWindow();
         if (window) {
-            this.focusWindow(window);
+            //this.focusWindow(window);
+            this.setFocused({window: window});
         }
     }
-    
-    focusWindow(win) {
-        for (let pid in this.windows) {
-            const w = this.windows[pid];
-            if (w != win) {
-                w.element.classList.remove(CLASS_FOCUSED);
+
+    setFocused(newFocused) {
+        if (this.focused != null) {
+            if ("window" in this.focused) {
+                const {element} = this.focused.window;
+                const isStillFocused = newFocused && "dropdown" in newFocused && element.contains(newFocused.dropdown);
+                if (!isStillFocused) {
+                    element.classList.remove(CLASS_FOCUSED);
+                    document.querySelectorAll(".dock-item").forEach((item) => item.classList.remove("focused"));
+                }
+            } else if ("dropdown" in this.focused) {
+                this.focused.dropdown.classList.remove("active");
+            } else {
+                assert(false);
             }
         }
 
-        const {element, process} = win;
-        document.querySelectorAll(".dock-item").forEach((item) => item.classList.remove("focused"));
-        document.querySelector(`#dock-item-${process.pid}`).classList.add("focused");
-
-        if (element.style.zIndex < this.maxZIndex) {
-            element.style.zIndex = ++this.maxZIndex;
+        if (newFocused != null) {
+            if ("window" in newFocused) {
+                const {element, process} = newFocused.window;
+                const pid = process.pid;
+                document.querySelector(`#dock-item-${pid}`).classList.add("focused");
+                if (element.style.zIndex < this.maxZIndex) {
+                    element.style.zIndex = ++this.maxZIndex;
+                }
+                element.classList.add(CLASS_FOCUSED);
+            } else if ("dropdown" in newFocused) {
+                newFocused.dropdown.classList.add("active");
+            } else {
+                assert(false);
+            }
         }
-    
-        element.classList.add(CLASS_FOCUSED);
 
-        this.focusedWindow = win;
-    }
-
-    unfocusWindow() {
-        if (this.focusedWindow != null) {
-            this.focusedWindow.element.classList.remove(CLASS_FOCUSED);
-            this.focusedWindow = null;
-            document.querySelectorAll(".dock-item").forEach((item) => item.classList.remove("focused"));
-        }
+        this.focused = newFocused;
     }
 
     clearResize() {
@@ -326,11 +337,11 @@ class WindowManager {
         }
     }
 
-    async createWindow(title, [width, height], proc, resizable, menubarButtons) {
+    async createWindow(title, [width, height], proc, resizable, menubarItems) {
         const pid = proc.pid;
         title = `${title} (pid=${pid})`
 
-        const doc = await WindowManager.fetchAndRenderTemplate("kernel/window-template.html", {pid, title, width, height});
+        const doc = await WindowManager.fetchAndRenderTemplate("kernel/html/window-template.html", {pid, title, width, height});
 
         const winElement = doc.querySelector('.program-window');
         const win = {element: winElement, process: proc};
@@ -345,11 +356,11 @@ class WindowManager {
 
         winElement.addEventListener("mousedown", (event) => {
             const {mouseX, mouseY} = this.translateMouse(event);
-            const rect = this.rect(winElement);
+            const rect = this.rectWithinScreenArea(winElement);
             if (this.isEasyAimEnabled && this.hoveredResize == null) {
                 this.draggingWindow = {window: win, offset: [mouseX - rect.x, mouseY - rect.y]};
             }
-            this.focusWindow(win);
+            this.setFocused({window: win});
 
             if (this.hoveredResize && this.hoveredResize.window == win) {
                 const anchor = this.hoveredResize.anchor;
@@ -379,7 +390,7 @@ class WindowManager {
         winElement.addEventListener("mousemove", (event) => {
             const {mouseX, mouseY} = this.translateMouse(event);
             if (this.draggingWindow == null && this.ongoingResize == null) {
-                const rect = this.rect(winElement);
+                const rect = this.rectWithinScreenArea(winElement);
                 const x = mouseX - rect.x;
                 const y = mouseY - rect.y;
                 const margin = this.isEasyAimEnabled ? 30 : 5;
@@ -416,27 +427,63 @@ class WindowManager {
         });
 
         const menubar = winElement.querySelector(".menubar");
-        for (const [text, buttonId] of menubarButtons) {
-            const buttonDoc = await WindowManager.fetchAndRenderTemplate("kernel/menubar-button-template.html", {buttonId, text});
-            const button = buttonDoc.querySelector(".menubar-button");
-            menubar.appendChild(button);
-            button.addEventListener("click", (event) => {
-                const buttonId = event.target.dataset.buttonId;
-                this.sendInputToProcess(win, {name: "menubarButtonWasClicked", event: {buttonId}});
-            });
+        
+        for (let itemConfig of menubarItems) {
+            const {text, id} = itemConfig;
+
+            if ("dropdown" in itemConfig) {
+                const buttonDoc = await WindowManager.fetchAndRenderTemplate("kernel/html/menubar-dropdown-button-template.html", {buttonId: id, text});
+                const wrapper = buttonDoc.querySelector(".dropdown-wrapper");
+                const dropdown = buttonDoc.querySelector(".dropdown");
+                const button = buttonDoc.querySelector(".menubar-button");
+                menubar.appendChild(wrapper);
+                for (const {text, id} of itemConfig.dropdown) {
+                    const itemDoc = await WindowManager.fetchAndRenderTemplate("kernel/html/dropdown-item-template.html", {itemId: id, text});
+                    const item = itemDoc.querySelector(".dropdown-item");
+                    dropdown.appendChild(item);
+                    item.addEventListener("mousedown", (event) => {
+                        this.setFocused(null);
+                        const itemId = item.dataset.itemId;
+                        this.sendInputToProcess(win, {name: "menubarDropdownItemWasClicked", event: {itemId}});
+                        event.stopPropagation();
+                    });
+                }
+
+                button.addEventListener("mousedown", (event) => {
+                    if (this.focused != null && "dropdown" in this.focused) {
+                        this.setFocused(null);
+                    } else {
+                        this.setFocused({dropdown});
+                    }
+    
+                    event.stopPropagation(); // Don't let the window steal focus
+                });
+                button.addEventListener("mouseover", (event) => {
+                    if (this.focused != null && "dropdown" in this.focused) {
+                        this.setFocused({dropdown});
+                    }
+                });
+            } else {
+                const buttonDoc = await WindowManager.fetchAndRenderTemplate("kernel/html/menubar-button-template.html", {buttonId: id, text});
+                const button = buttonDoc.querySelector(".menubar-button");
+                menubar.appendChild(button);
+                button.addEventListener("click", (event) => {
+                    const buttonId = event.target.dataset.buttonId;
+                    this.sendInputToProcess(win, {name: "menubarButtonWasClicked", event: {buttonId}});
+                });
+            }
         }
 
         const titlebar = winElement.querySelector(".titlebar");
         titlebar.addEventListener("mousedown", (event) => {
             const {mouseX, mouseY} = this.translateMouse(event);
             if (this.hoveredResize == null) {
-                const rect = this.rect(winElement);
+                const rect = this.rectWithinScreenArea(winElement);
                 const left = parseInt(winElement.style.left.replace("px", "")) || rect.x;
                 const top = parseInt(winElement.style.top.replace("px", "")) || rect.y;
                 this.draggingWindow = {window: win, offset: [mouseX - left, mouseY - top]};
             }
         });
-
 
         // User input to process
         canvas.addEventListener("mousemove", (event) => {
@@ -462,10 +509,17 @@ class WindowManager {
     
         this.screenArea.appendChild(winElement);
 
-        const rect = this.rect(winElement);
+        const rect = this.rectWithinScreenArea(winElement);
         const position = this.positionNewWindow(rect.width, rect.height);
         winElement.style.left = position[0];
         winElement.style.top = position[1];
+
+        // Now that the window is part of the DOM, we can calculate and set dropdown positions
+        for (let dropdownWrapper of winElement.querySelectorAll(".dropdown-wrapper")) {
+            const windowX = winElement.getBoundingClientRect().left;
+            const buttonX = dropdownWrapper.getBoundingClientRect().left;
+            dropdownWrapper.querySelector(".dropdown").style.left = `${buttonX - windowX}px`;
+        }
 
         this.windows[pid] = win;
         console.log("Added window. ", this.windows);
@@ -475,14 +529,14 @@ class WindowManager {
         dockItem.classList.add("dock-item");
         dockItem.innerText = win.process.programName;
         dockItem.addEventListener("mousedown", (event) => {
-            this.focusWindow(this.windows[pid]);
+            this.setFocused({window: this.windows[pid]});
 
              // Prevent window manager from taking focus from the window
              event.stopPropagation();
         });
         this.dock.appendChild(dockItem);
 
-        this.focusWindow(win);
+        this.setFocused({window: win});
 
         const offscreenCanvas = canvas.transferControlToOffscreen();
         return offscreenCanvas;

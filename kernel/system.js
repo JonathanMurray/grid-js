@@ -80,6 +80,7 @@ class System {
             "echo",
             "editor", 
             "inspect",
+            "kill",
             "launcher", 
             "less",
             "lines",
@@ -214,11 +215,11 @@ class System {
     
                 const regex = /\((.+):(.+):(.+)\)/;
                 for (let stackLine of stackLines) {
-                    console.log("STACK LINE: ", stackLine);
+                    //console.log("STACK LINE: ", stackLine);
                     const match = stackLine.match(regex);
                     if (match) {
                         const fileName = match[1];
-                        console.log(`FILENAME: '${fileName}'`)
+                        //console.log(`FILENAME: '${fileName}'`)
                         if (fileName.startsWith("eval at") && fileName.endsWith("<anonymous>")) {
                             const headerLen = 1; // Runnable file starts with a header that is stripped off before we execute it
 
@@ -229,7 +230,7 @@ class System {
                                 deepestStackPosition = [lineNumber, colNumber];
                             }
                             const translatedStackLine = stackLine.replace(regex, `(${programName}:${lineNumber}:${colNumber})`);
-                            console.log(`TRANSLATED LINE: '${translatedStackLine}'`);
+                            //console.log(`TRANSLATED LINE: '${translatedStackLine}'`);
                             writeErrorLine(translatedStackLine);
                             hasStartedWritingStackLines = true;
                         }
@@ -263,7 +264,7 @@ class System {
         console.debug(pid, `${syscall}(${JSON.stringify(arg)}) ...`);
         this.call(syscall, arg, pid).then((result) => {
             if (pid in this.processes) {
-                console.debug(pid, `${syscall}(${JSON.stringify(arg)}) --> ${JSON.stringify(result)}`);
+                console.debug(pid, `... ${syscall}() --> ${JSON.stringify(result)}`);
                 let transfer = [];
                 if (result instanceof OffscreenCanvas) {
                     // Ownership of the canvas needs to be transferred to the worker
@@ -275,9 +276,9 @@ class System {
         }).catch((error) => {
             if (pid in this.processes) {
                 if (error instanceof SysError || error.name == "ProcessInterrupted" || error.name == "SysError") {
-                    console.debug(pid, `${syscall}(${JSON.stringify(arg)}) --> `, error);
+                    console.debug(pid, `... ${syscall}() --> `, error);
                 } else {
-                    console.error(pid, `${syscall}(${JSON.stringify(arg)}) --> `, error);
+                    console.error(pid, `... ${syscall}() --> `, error);
                 }
                 this.processes[pid].worker.postMessage({syscallResult: {error, sequenceNum}});
             }
@@ -315,14 +316,13 @@ class System {
         throw new SysError("no such program file: " + programName);
     }
 
-    createWindow(title, size, proc, resizable, menubarButtons) {
-        return this.windowManager.createWindow(title, size, proc, resizable, menubarButtons);
+    createWindow(title, size, proc, resizable, menubarItems) {
+        return this.windowManager.createWindow(title, size, proc, resizable, menubarItems);
     }
 
     onProcessExit(proc, exitValue) {
         const pid = proc.pid;
         assert(pid != undefined);
-        console.log("HERE"); //TODO
         console.log(`[${pid}] PROCESS EXIT`, exitValue)
         if (proc.exitValue == null) {
             proc.onExit(exitValue);

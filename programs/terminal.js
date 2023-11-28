@@ -4,7 +4,36 @@ async function main(args) {
 
     const programName = args[0] || "shell";
 
-    const window = await stdlib.createWindow("Terminal", [500, 400], {menubarButtons: [["Font -", "ZOOM_OUT"], ["Font +", "ZOOM_IN"]]});
+    const menubarItems = [
+        {
+            text: "Theme",
+            dropdown: [
+                {
+                    text: "Dark",
+                    id: "DARK"
+                },
+                {
+                    text: "Light",
+                    id: "LIGHT"
+                },
+                {
+                    text: "Matrix",
+                    id: "MATRIX"
+                },
+            ]
+        },
+        {
+            text: "Font -",
+            id: "ZOOM_OUT",
+        },
+        {
+            text: "Font +",
+            id: "ZOOM_IN",
+        },
+    ]
+
+
+    const window = await stdlib.createWindow("Terminal", [500, 400], {menubarItems});
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
@@ -87,6 +116,22 @@ async function main(args) {
                 assert(buttonId == "ZOOM_OUT");
                 changeFontSize(0.9);
             }
+        }
+        window.ondropdown = ({itemId}) => {
+            console.log(itemId);
+            if (itemId == "DARK") {
+                terminalGrid.setDefaultBackground("black");
+                terminalGrid.setDefaultForeground("white");
+            } else if (itemId == "LIGHT") {
+                terminalGrid.setDefaultBackground("white");
+                terminalGrid.setDefaultForeground("black");
+            } else if (itemId == "MATRIX") {
+                terminalGrid.setDefaultBackground("black");
+                terminalGrid.setDefaultForeground("#00FF00");
+            } else {
+                assert(false);
+            }
+            draw();
         }
 
         window.onkeydown = (event) => {

@@ -133,6 +133,28 @@
     background: white;
 }
 
+.dropdown {
+    display: none;
+    position: absolute;
+    background: white;
+}
+.dropdown.active {
+    display: block;
+}
+.dropdown-item {
+    background: white;
+    border: 1px solid black;
+    padding-left: 10px;
+    padding-right: 10px;
+
+    font-size: 14px;
+    font-weight: normal; 
+    cursor: pointer;
+}
+.dropdown-item:hover {
+    background: lightblue;
+}
+
 .canvas-wrapper {
     overflow: hidden;
     

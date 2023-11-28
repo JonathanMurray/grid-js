@@ -209,7 +209,14 @@ async function main(args) {
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const window = await stdlib.createWindow("Snake", [324, 324], {menubarButtons: [["Start over", "START_OVER"]]});
+    const menubarItems = [
+        {
+            text: "Start over",
+            id: "START_OVER",
+        },
+    ]
+
+    const window = await stdlib.createWindow("Snake", [324, 324], {menubarItems});
     const snake = new Snake(window.canvas);
 
     window.onbutton = ({buttonId}) => {
