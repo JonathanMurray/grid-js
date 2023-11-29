@@ -18,6 +18,14 @@ const PROGRAM_LAUNCHER = "launcher";
 
 const CANVAS_SCALE = window.devicePixelRatio; // Change to 1 on retina screens to see blurry canvas.
 
+function rectInPage(element) {
+    // The bounding client rect is not an elements position "on the page". For example, if you scroll down
+    // the bounding rect will get a lower y value (because it's shown further up on the screen). 
+    const r = element.getBoundingClientRect();
+
+    return {x: window.scrollX + r.x , y: window.scrollY + r.y, width: r.width, height: r.height};
+}
+
 class WindowManager {
 
     static async init(launchProgram) {
@@ -43,9 +51,10 @@ class WindowManager {
 
         this.isEasyAimEnabled = false;
 
-        this.screenRect = this.screenArea.getBoundingClientRect();
+        this.screenRect = rectInPage(screenArea);
 
         this.dock = document.querySelector("#dock");
+        this.dockHeight = dock.getBoundingClientRect().height;
         document.querySelector("#launcher-icon").addEventListener("mousedown", (event) => {
             this.showLauncher();
 
@@ -53,12 +62,24 @@ class WindowManager {
             event.stopPropagation();
         });
 
+        const minVisible = 40;
+
         window.addEventListener("mousemove", (event) => {
             const {mouseX, mouseY} = this.translateMouse(event);
             if (this.draggingWindow != null) {
                 const {window, offset} = this.draggingWindow;
-                window.element.style.left = mouseX - offset[0];
-                window.element.style.top = mouseY - offset[1];
+                const rect = this.rectWithinScreenArea(window.element);
+                let newX = mouseX - offset[0];
+                let newY = mouseY - offset[1];
+
+                // Don't let the window be dragged completely out of the screen area
+                newX = Math.max(newX, minVisible - rect.width); // left side
+                newX = Math.min(newX, this.screenRect.width - minVisible); // right side
+                newY = Math.max(newY, minVisible - rect.height); // top side
+                newY = Math.min(newY, this.screenRect.height - this.dockHeight - minVisible); // bottom side
+
+                window.element.style.left = newX;
+                window.element.style.top = newY;
                 this.setFocused({window})
             } else if (this.ongoingResize != null) {
                 const {window, anchor, offset} = this.ongoingResize;
@@ -72,32 +93,39 @@ class WindowManager {
                 let newWidth;
                 let newHeight;
 
+                if (anchor.includes("W")) {
+                    const targetX = Math.max(mouseX - offset[0], 0);
+                    const targetDX = targetX - rect.x;
+                    // Don't allow making the window too small
+                    newWidth = Math.max(canvasRect.width - targetDX, WIN_MIN_SIZE[0]);
+                    // Don't allow dragging out through the right screen edge, making the window disappear
+                    newWidth = Math.max(newWidth, rect.x + canvasRect.width - this.screenRect.width + minVisible);
+                    const dx = canvasRect.width - newWidth;
+                    newX = rect.x + dx;
+                } 
                 if (anchor.includes("N")) {
-                    const targetY = mouseY - offset[1];
+                    const targetY = Math.max(mouseY - offset[1], 0);
                     const targetDY = targetY - rect.y;
+                    // Don't allow making the window too small
                     newHeight = Math.max(canvasRect.height - targetDY, WIN_MIN_SIZE[1]);
+                    // Don't allow dragging out of the bottom screen edge, making the window disappear
+                    newHeight = Math.max(newHeight, this.dockHeight + rect.y + canvasRect.height - this.screenRect.height + minVisible);
                     const dy = canvasRect.height - newHeight;
                     newY = rect.y + dy;
                 }
                 if (anchor.includes("E")) {
                     const prevRight = rect.x + rect.width;
-                    const newRight = mouseX - offset[0];
+                    const newRight = Math.min(mouseX - offset[0], this.screenRect.width);
                     const dx = newRight - prevRight;
                     newWidth = Math.max(canvasRect.width + dx, WIN_MIN_SIZE[0]);
                 }
                 if (anchor.includes("S")) {
                     const prevBot = rect.y + rect.height;
-                    const newBot = mouseY - offset[1];
+                    const newBot = Math.min(mouseY - offset[1], this.screenRect.height);
                     const dy = newBot - prevBot;
                     newHeight = Math.max(canvasRect.height + dy, WIN_MIN_SIZE[1]);
                 }
-                if (anchor.includes("W")) {
-                    const targetX = mouseX - offset[0];
-                    const targetDX = targetX - rect.x;
-                    newWidth = Math.max(canvasRect.width - targetDX, WIN_MIN_SIZE[0]);
-                    const dx = canvasRect.width - newWidth;
-                    newX = rect.x + dx;
-                } 
+       
 
                 if (newX != undefined) {
                     window.element.style.left = newX;
@@ -196,7 +224,7 @@ class WindowManager {
     }
 
     rectWithinScreenArea(element) {
-        const rect = element.getBoundingClientRect();
+        const rect = rectInPage(element);
         return {x: rect.x - this.screenRect.x, y: rect.y - this.screenRect.y, width: rect.width, height: rect.height};
     }
 
@@ -313,8 +341,7 @@ class WindowManager {
             return [parseInt(frontMost.element.style.left.replace("px", "")) + offset,
                     parseInt(frontMost.element.style.top.replace("px", "")) + offset];
         } else {
-            const available = this.screenArea.getBoundingClientRect();
-            return [available.width / 2 - width / 2, available.height / 2 - height / 2];
+            return [this.screenRect.width / 2 - width / 2, this.screenRect.height / 2 - height / 2];
         }
     }
 
@@ -499,8 +526,8 @@ class WindowManager {
 
         // Now that the window is part of the DOM, we can calculate and set dropdown positions
         for (let dropdownWrapper of winElement.querySelectorAll(".dropdown-wrapper")) {
-            const windowX = winElement.getBoundingClientRect().left;
-            const buttonX = dropdownWrapper.getBoundingClientRect().left;
+            const windowX = rectInPage(winElement).left;
+            const buttonX = rectInPage(dropdownWrapper).left;
             dropdownWrapper.querySelector(".dropdown").style.left = `${buttonX - windowX}px`;
         }
 
@@ -537,6 +564,6 @@ class WindowManager {
     }
 
     translateMouse(event) {
-        return {mouseX: event.x - this.screenRect.x, mouseY: event.y - this.screenRect.y};
+        return {mouseX: event.pageX - this.screenRect.x, mouseY: event.pageY - this.screenRect.y};
     }
 }
