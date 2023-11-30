@@ -240,16 +240,44 @@ class System {
                 }
 
                 if (deepestStackPosition != null) {
-                    const [lineNumber, colNumber] = deepestStackPosition;
+                    let [lineNumber, colNumber] = deepestStackPosition;
+
                     const code = this.files[programName].text;
                     let line = code.split("\n")[lineNumber - 1];
-                    const maxLen = 25;
-                    if (line.length > maxLen) {
-                        line = line.slice(0, maxLen) + " [...]";
+
+                    if (line !== undefined) {
+                        // Remove uninteresting whitespace on the left
+                        let trimmedLine = line.trim();
+                        colNumber -= (line.length - trimmedLine.length);
+                        line = trimmedLine;
+    
+                        const width = 35;
+                        let i = 0; 
+                        for (; i < line.length - width; i++) {
+                            if (i + width/4 >= colNumber) {
+                                // the point of interest is now at a good place, horizontally
+                                break;
+                            }
+                        }
+                        colNumber -= i;
+    
+                        if (line.length - i > width) {
+                            line = line.slice(i, i + width) + " ...";
+                        } else {
+                            line = line.slice(i, i + width);
+                        }
+    
+                        if (i > 0) {
+                            line = "... " + line;
+                            colNumber += 4;
+                        }
+    
+                        const lineNumString = lineNumber.toString();
+                        
+                        writeErrorLine(`\n${lineNumString} | ${line}`);
+                        writeErrorLine(" ".padEnd(lineNumString.length + 3 + colNumber) + 
+                                        `${ANSI_CSI}31m^${ANSI_CSI}39m`);
                     }
-                    const lineNumString = lineNumber.toString();
-                    writeErrorLine(`\n${lineNumString} | ${line}`);
-                    writeErrorLine(" ".padEnd(lineNumString.length + 2 + colNumber) + `${ANSI_CSI}31m^${ANSI_CSI}39m`);
                 }
             }
 

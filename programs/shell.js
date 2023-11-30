@@ -136,9 +136,10 @@ async function handleInputLine(input) {
             await writeError(error.message);
             return;
         }
+        throw error;
     }
 
-    const {builtin, pipeline} = parsed;
+    const {builtin, pipeline, redirectOutputTo} = parsed;
 
     if (builtin) {
         await builtins[builtin.name](builtin.args);
@@ -165,7 +166,12 @@ async function handleInputLine(input) {
             }
 
             if (i == commands.length - 1) {
-                stdout = shellStdout;
+                if (redirectOutputTo === null) {
+                    stdout = shellStdout;
+                } else {
+                    const outputFileStreamId = await syscall("openFile", {fileName: redirectOutputTo, createIfNecessary: true});
+                    stdout = outputFileStreamId;
+                }
             } else {
                 const pipe = await syscall("createPipe");
                 pipedStdin = pipe.readerId;
@@ -181,8 +187,8 @@ async function handleInputLine(input) {
 
             const pid = await syscall("spawn", {program, args, streamIds: [stdin, stdout], pgid});
 
-            // Once a stream has been duplicated in the child, we should close our version, to ensure
-            // correct pipe behaviour when the child closes their version.
+            // Once a stream has been duplicated in the child, we close our version.
+            // For pipes, this is needed to ensure correct behaviour when the child closes their version.
             // https://man7.org/linux/man-pages/man7/pipe.7.html
             if (stdin != shellStdin) {
                 await syscall("closeStream", {streamId: stdin});
@@ -301,6 +307,7 @@ async function parse(line) {
 
     let pipeline = null;
     let builtin = null;
+    let redirectOutputTo = null;
 
     const fileNames = await syscall("listFiles");
 
@@ -331,6 +338,18 @@ async function parse(line) {
                 pipeline.commands.push(command);
                 command = null; // A new command will be parsed after the pipe symbol
                 builtin = null;
+            } else if (word == ">") {
+
+                if (remainingWords.length == 0) {
+                    throw new ParseError("invalid syntax: > must be followed by file name");
+                }
+
+                if (redirectOutputTo != null) {
+                    throw new ParseError("invalid syntax: at most one > is allowed");
+                }
+
+                const fileName = remainingWords.shift();
+                redirectOutputTo = fileName;
             } else {
                 args.push(word);
             }
@@ -346,11 +365,16 @@ async function parse(line) {
         console.error("Found no command or builtin");
     }
 
-    if (pipeline != null && builtin != null) {
-        throw new ParseError("builtins are not supported in pipeline");
+    if (builtin != null) {
+        if (pipeline != null) {
+            throw new ParseError("builtins are not supported in pipeline");
+        }
+        if (redirectOutputTo != null) {
+            throw new ParseError("builtins don't support output redirection");
+        }
     }
 
-    return {pipeline, builtin};
+    return {pipeline, builtin, redirectOutputTo};
 }
 
 class ParseError extends Error {
