@@ -47,12 +47,8 @@ async function main(args) {
 
     let terminalGrid = new TerminalGrid(terminalSize, "black", "white");
 
-    const pty = await syscall("createPseudoTerminal");
+    const {master: ptyMaster, slave: ptySlave} = await syscall("createPseudoTerminal");
     await syscall("configurePseudoTerminal", {resize: {width: terminalSize[0], height: terminalSize[1]}});
-    const terminalPtyReader = pty.master.in;
-    const terminalPtyWriter = pty.master.out;
-    const childStdin = pty.slave.in;
-    const childStdout = pty.slave.out;
 
     let childPid;
     let hasChildExited = false;
@@ -68,11 +64,10 @@ async function main(args) {
     draw();
 
     try {
-        childPid = await syscall("spawn", {program: programName, streamIds: [childStdin, childStdout],
+        childPid = await syscall("spawn", {program: programName, streamIds: [ptySlave, ptySlave],
                                  pgid: "START_NEW"});
 
-        await syscall("closeStream", {streamId: childStdin});
-        await syscall("closeStream", {streamId: childStdout});
+        await syscall("closeStream", {streamId: ptySlave});
 
         const childPgid = childPid; // The child is process group leader
         await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: childPgid});
@@ -178,12 +173,12 @@ async function main(args) {
             }
     
             if (sequence != null) {
-                write(sequence, terminalPtyWriter);
+                write(sequence, ptyMaster);
             }
         };
     
         while (true) {
-            let text = await syscall("read", {streamId: terminalPtyReader});
+            let text = await syscall("read", {streamId: ptyMaster});
 
             if (text == "") {
                 // EOF from the PTY. We have to check if it's caused by the child exiting.
@@ -211,7 +206,7 @@ async function main(args) {
                         if (args[0] == 6) {
                             // See ANSI_GET_CURSOR_POSITION
                             const [colIdx, rowIdx] = terminalGrid.cursorPosition();
-                            await write(cursorPositionReport(rowIdx + 1, colIdx + 1), terminalPtyWriter);
+                            await write(cursorPositionReport(rowIdx + 1, colIdx + 1), ptyMaster);
                         } else {
                             assert(false, "support more ansi 'n' functions");
                         }

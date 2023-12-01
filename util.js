@@ -59,8 +59,15 @@ function ansiCustomTerminalCommand(commandLen) {
 
 const Errno = {
     WOULDBLOCK: "WOULDBLOCK",
+    /** Trying to seek on a pipe */
+    SPIPE: "SPIPE",
 }
 
+const FileType = {
+    PTY: "PTY",
+    PIPE: "PIPE",
+    TEXTFILE: "TEXTFILE"
+}
 
 class TextWithCursor {
     constructor() {

@@ -2,12 +2,18 @@
 
 async function main(args) {
     try {
-        
         if (args.length >= 1) {
             const fileName = args[0];
-            await run(fileName);
+            const streamId = await syscall("openFile", {fileName});
+            await run(streamId);
         } else {
-            await writeError("missing filename argument");
+            const stdin = 0;
+            const fileType = await syscall("getStreamFileType", {streamId: stdin});
+            if (fileType == FileType.PTY) {
+                writeError("specify file or use non-pty stdin")
+                return;
+            }
+            await run(stdin);
         }
     } catch (error) {
         if (error.name != "ProcessInterrupted") {
@@ -18,19 +24,19 @@ async function main(args) {
     }
 }
 
-async function run(fileName) {
-    
-    const streamId = await syscall("openFile", {fileName});
-    const text = await syscall("read", {streamId});
-    const lines = text.split(/\n|\r\n/);
-    const doc = new DocumentWithCursor(lines);
-        
-    let lineNumberWidth = doc.lines.length.toString().length;
-    const leftMargin = lineNumberWidth + 1;
+async function run(contentStreamId) {
+
+    // https://unix.stackexchange.com/questions/452757/how-does-less-take-data-from-stdin-while-still-be-able-to-read-commands-from-u
+    const ptyInputStreamId = await syscall("openPseudoTerminalSlave");
 
     await syscall("handleInterruptSignal");
     await syscall("configurePseudoTerminal", {mode: "CHARACTER_AND_SIGINT"});
     await stdlib.terminal.enterAlternateScreen();
+
+    let lines;
+    let doc;
+    let lineNumberWidth;
+    let leftMargin;
 
     let lineWidth;
     let rows;
@@ -39,7 +45,25 @@ async function run(fileName) {
 
     let termsize = await syscall("getTerminalSize");
 
-    async function init() {
+    async function loadContents() {
+        try {
+            await syscall("seekInFile", {streamId: contentStreamId, position: 0});
+        } catch (error) {
+            // The input stream may not be seekable.
+            if (error.errno != Errno.SPIPE) {
+                throw error;
+            }
+        }
+        const text = await read(contentStreamId);
+        lines = text.split(/\n|\r\n/);
+        doc = new DocumentWithCursor(lines);
+        lineNumberWidth = doc.lines.length.toString().length;
+        leftMargin = lineNumberWidth + 1;
+
+        await initGrid();
+    }
+
+    async function initGrid() {
         lineWidth = termsize[0] - leftMargin;
         let lineBeginnings;
         ({rows, lineBeginnings} = doc.calculateWrapped(lineWidth));
@@ -50,17 +74,16 @@ async function run(fileName) {
             lineToRowMapping[lineNumber] = rowIndx;
             lineNumber ++;
         }
+
+        await render();
     }
 
     async function onresize() {
         termsize = await syscall("getTerminalSize");
-        await init();
-        await render();
+        await initGrid();
     }
 
-    handleTerminalResizeSignal(onresize);
 
-    let offset = 0;
 
     async function render() {
         let output = ANSI_ERASE_ENTIRE_SCREEN;
@@ -100,11 +123,15 @@ async function run(fileName) {
         offset = Math.max(0, Math.min(value, rows.length - termsize[1]));
     }
 
-    await init();
+    handleTerminalResizeSignal(onresize);
+
+    let offset = 0;
+
+    await loadContents();
 
     while (true) {
         await render();
-        const input = await read();
+        const input = await read(ptyInputStreamId);
 
         let isNumber = /^\d+$/.test(input);
         if (isNumber) {
@@ -131,6 +158,8 @@ async function run(fileName) {
                 } else {
                     setOffset(rows.length - 1);
                 }
+            } else if (input == "R") {
+                await loadContents();
             } else if (input == "q") {
                 // Exit program
                 break;

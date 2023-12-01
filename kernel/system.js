@@ -6,42 +6,6 @@ class TextFile {
     }
 }
 
-class OpenFileDescription {
-    constructor(system, id, file) {
-        this.system = system;
-        this.id = id;
-        this.file = file;
-        this.numStreams = 1;
-        this.charIndex = 0;
-    }
-
-    write(text) {
-        const existing = this.file.text;
-        this.file.text = existing.slice(0, this.charIndex) + text + existing.slice(this.charIndex + text.length);
-        this.charIndex += text.length;
-    }
-
-    read() {
-        const text = this.file.text.slice(this.charIndex);
-        this.charIndex = this.file.text.length;
-        return text;
-    }
-
-    onStreamClose() {
-        this.numStreams --;
-        assert(this.numStreams >= 0);
-
-        if (this.numStreams == 0) {
-            delete this.system.openFileDescriptions[this.id];
-        }
-    }
-
-    onStreamDuplicate() {
-        assert(this.numStreams > 0); // One must exist to be duplicated
-        this.numStreams ++;
-    }
-}
-
 class System {
 
     constructor(files) {
@@ -331,8 +295,7 @@ class System {
                 const proc = new Process(worker, code, programName, args, pid, streams, ppid, pgid, sid);
                 this.processes[pid] = proc;
 
-                console.log(`[${pid}] NEW PROCESS. parent=${ppid}, group=${pgid}, session=${sid}`)
-
+                console.log(`[${pid}] NEW PROCESS (${programName}). parent=${ppid}, group=${pgid}, session=${sid}`)
                 
                 worker.postMessage({startProcess: {programName, code, args, pid}});
                 worker.onmessage = (msg) => this.handleMessageFromWorker(pid, msg);
@@ -468,12 +431,10 @@ class System {
         const pty = new PseudoTerminal(this, proc.sid);
         this.pseudoTerminals[proc.sid] = pty;
 
-        const masterIn = proc.addStream(new PipeReader(pty.pipeToMaster));
-        const masterOut = proc.addStream(pty.masterWriter);
-        const slaveIn = proc.addStream(new PipeReader(pty.pipeToSlave));
-        const slaveOut = proc.addStream(pty.slaveWriter);
+        const master = proc.addStream(pty.master);
+        const slave = proc.addStream(pty.slave);
 
-        return {master: {in: masterIn, out: masterOut}, slave: {in: slaveIn, out: slaveOut}};
+        return {master, slave};
     }
 
     configurePseudoTerminal(proc, config) {
@@ -482,6 +443,15 @@ class System {
             throw new SysError("no pseudoterminal connected to session");
         }
         pty.configure(config);
+    }
+
+    procOpenPseudoTerminalSlave(proc) {
+        const pty = this.pseudoTerminals[proc.sid];
+        if (pty == undefined) {
+            throw new SysError("no pseudoterminal connected to session");
+        }
+        const streamId = proc.addStream(pty.openNewSlave());
+        return streamId;
     }
 
     getTerminalSize(proc) {
@@ -501,9 +471,9 @@ const SignalBehaviour = {
 
 
 
-class SysError extends Error {
+class SysError {
     constructor(message, errno) {
-        super(message);
+        this.message = message;
         this.name = "SysError";
         this.errno = errno;
     }

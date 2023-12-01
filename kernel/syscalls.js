@@ -36,6 +36,16 @@ class Syscalls {
         return this.system.configurePseudoTerminal(proc, args);
     }
 
+    openPseudoTerminalSlave(proc, args) {
+        return this.system.procOpenPseudoTerminalSlave(proc);
+    }
+
+    getStreamFileType(proc, args) {
+        let {streamId} = validateSyscallArgs(args, ["streamId"]);
+        const stream = proc.streams[streamId];
+        return stream.type;
+    }
+
     getTerminalSize(proc, args) {
         return this.system.getTerminalSize(proc);
     }
@@ -128,6 +138,11 @@ class Syscalls {
             createIfNecessary = false;
         }
         return this.system.procOpenFile(proc, fileName, createIfNecessary);
+    }
+
+    seekInFile(proc, args) {
+        let {streamId, position} = validateSyscallArgs(args, ["streamId", "position"]);
+        proc.streams[streamId].seek(position);
     }
 
     setFileLength(proc, args) {

@@ -12,3 +12,6 @@ https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-The-Alternate-Screen-
 https://www.lihaoyi.com/post/BuildyourownCommandLinewithANSIescapecodes.html
 
 https://learn.microsoft.com/en-us/windows/win32/controls/scroll-bars?redirectedfrom=MSDN
+
+https://dev.to/napicella/linux-terminals-tty-pty-and-shell-192e
+https://dev.to/napicella/linux-terminals-tty-pty-and-shell-part-2-2cb2
