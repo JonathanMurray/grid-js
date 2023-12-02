@@ -5,9 +5,9 @@ let history;
 
 async function main(args) {
 
-    const configStreamId = await syscall("openFile", {fileName: "config.json"});
-    let config = await read(configStreamId);
-    await syscall("closeStream", {streamId: configStreamId});
+    const configFd = await syscall("openFile", {fileName: "config.json"});
+    let config = await read(configFd);
+    await syscall("close", {fd: configFd});
     config = JSON.parse(config)
     const prompt = config.prompt;
 
@@ -20,17 +20,22 @@ async function main(args) {
     async function getInputLine() {
         let editLine = new TextWithCursor();
         
-        const [_line, startCol] = await stdlib.terminal.getCursorPosition();
+        const {skippedInput, position: [_line, startCol]} = await stdlib.terminal.getCursorPosition();
 
         function line() {
             return `${ansiSetCursorHorizontalAbsolute(startCol)}${ANSI_ERASE_LINE_TO_RIGHT}${prompt}${editLine.text}`;
         }
 
+        let received = skippedInput;
+
         while (true) {
-            
+
             await write(line() + ansiSetCursorHorizontalAbsolute(startCol + prompt.length + editLine.cursor));
 
-            let received = await read();
+            // If we read some input before getting the cursor position response, we use that instead of reading again
+            if (received == "") {
+                received = await read();
+            }
 
             while (received != "") {
                 let matched;
@@ -169,8 +174,8 @@ async function handleInputLine(input) {
                 if (redirectOutputTo === null) {
                     stdout = shellStdout;
                 } else {
-                    const outputFileStreamId = await syscall("openFile", {fileName: redirectOutputTo, createIfNecessary: true});
-                    stdout = outputFileStreamId;
+                    const outputFileFd = await syscall("openFile", {fileName: redirectOutputTo, createIfNecessary: true});
+                    stdout = outputFileFd;
                 }
             } else {
                 const pipe = await syscall("createPipe");
@@ -185,16 +190,22 @@ async function handleInputLine(input) {
                 pgid = "START_NEW";
             }
 
-            const pid = await syscall("spawn", {program, args, streamIds: [stdin, stdout], pgid});
+            let pid;
+            try {
+                pid = await syscall("spawn", {program, args, fds: [stdin, stdout], pgid});
+            } catch (e) {
+                await writeError(e.message);
+                return;
+            }
 
             // Once a stream has been duplicated in the child, we close our version.
             // For pipes, this is needed to ensure correct behaviour when the child closes their version.
             // https://man7.org/linux/man-pages/man7/pipe.7.html
             if (stdin != shellStdin) {
-                await syscall("closeStream", {streamId: stdin});
+                await syscall("close", {fd: stdin});
             }
             if (stdout != shellStdout) {
-                await syscall("closeStream", {streamId: stdout});
+                await syscall("close", {fd: stdout});
             }
 
             pids.push(pid);
@@ -285,7 +296,7 @@ async function runJobInForeground(job) {
     await syscall("configurePseudoTerminal", {mode: "LINE"});
 
     // Give the terminal to the new foreground group
-    await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: job.pgid});
+    await syscall("setPtyForegroundPgid", {pgid: job.pgid});
     const lastPid = job.pids.slice(-1)[0];
     for (let i = job.pids.length - 1; i >= 0; i--) {
         const pid = job.pids[i];
@@ -297,7 +308,7 @@ async function runJobInForeground(job) {
     }
    
     // Reclaim the terminal
-    await syscall("setForegroundProcessGroupOfPseudoTerminal", {toSelf: true});
+    await syscall("setPtyForegroundPgid", {toSelf: true});
     await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
 }
 

@@ -2,13 +2,13 @@
 
 async function main(args) {
 
-    const streamId = await syscall("openFile", {fileName: "textfile"});
-    await writeln(`opened file: ${streamId}`);
+    const fd = await syscall("openFile", {fileName: "textfile"});
+    await writeln(`opened file: ${fd}`);
 
-    let text = await syscall("read", {streamId});
+    let text = await syscall("read", {fd});
     await writeln(`Read text: '${text}'`);
 
-    text = await syscall("read", {streamId});
+    text = await syscall("read", {fd});
     await writeln(`Read text: '${text}'`);
     
 }

@@ -9,75 +9,83 @@ const PseudoTerminalMode = {
     LINE: "LINE"
 }
 
-
-class PtySlave {
+class _PtySlaveFile {
     constructor(pty) {
-        this.type = FileType.PTY;
         this._pty = pty;
         this._isOpen = true;
+
+        pty._pipeToSlave.incrementNumReaders();
+        pty._pipeToMaster.incrementNumWriters();
+    }
+
+    open() {
+    }
+
+    close() {
+        assert(this._isOpen, "closing already closed");
+        this._isOpen = false;
+        this._pty._pipeToSlave.decrementNumReaders();
+        this._pty._pipeToMaster.decrementNumWriters();
     }
     
-    requestWrite(writer) {
+    requestWriteAt(_charIdx, writer) {
         assert(this._isOpen, "writing closed");
         this._pty._requestWriteOnSlave(writer);
     }
     
-    requestRead(reader) {
+    requestReadAt(_charIdx, args) {
         assert(this._isOpen, "reading closed");
-        return this._pty._pipeToSlave.requestRead(reader);
-    }
-    
-    close() {
-        assert(this._isOpen, "closing already closed");
-        this._isOpen = false;
-        this._pty._pipeToSlave.onReaderClose();
-    }
-
-    duplicate() {
-        assert(this._isOpen, "duplicating closed");
-        this._pty._pipeToSlave.onReaderDuplicate();
-        return new PtySlave(this._pty, this.type);
+        return this._pty._pipeToSlave.requestRead(args);
     }
 
     seek() {
         throw new SysError("cannot seek pty-slave", Errno.SPIPE);
     }
+
+    getFileType() {
+        return FileType.PTY;
+    }
 }
 
-class PtyMaster {
-    constructor(pty, type) {
-        this.type = FileType.PTY;
+class _PtyMasterFile {
+    constructor(pty) {
         this._pty = pty;
         this._isOpen = true;
+
+        pty._pipeToMaster.incrementNumReaders();
+        pty._pipeToSlave.incrementNumWriters();
     }
-    
-    requestWrite(writer) {
+
+    open() {
+    }
+        
+    close() {
+        assert(this._isOpen);
+        this._isOpen = false;
+        this._pty._pipeToMaster.decrementNumReaders();
+        this._pty._pipeToSlave.decrementNumWriters();
+    }
+
+    requestWriteAt(_charIdx, writer) {
         assert(this._isOpen);
         this._pty._requestWriteOnMaster(writer);
     }
     
-    requestRead(reader) {
+    requestReadAt(_charIdx, args) {
         assert(this._isOpen);
-        return this._pty._pipeToMaster.requestRead(reader);
-    }
-    
-    close() {
-        assert(this._isOpen);
-        this._isOpen = false;
-        this._pty._pipeToMaster.onReaderClose();
-    }
-
-    duplicate() {
-        assert(this._isOpen);
-        this._pty._pipeToMaster.onReaderDuplicate();
-        return new PtyMaster(this._pty, this.type);
+        return this._pty._pipeToMaster.requestRead(args);
     }
 
     seek() {
         throw new SysError("cannot seek pty-master", Errno.SPIPE);
     }
+
+    getFileType() {
+        return FileType.PTY;
+    }
 }
 
+// TODO: Handle this with a device file instead. It will be "just another case", sitting next to "textfile" and "browser console".
 class PseudoTerminal {
     // Pseudoterminal a.k.a. PTY is used for IO between the terminal and the shell.
     // https://man7.org/linux/man-pages/man7/pty.7.html
@@ -90,18 +98,17 @@ class PseudoTerminal {
         this._system = system;
         this._lineDiscipline = new LineDiscipline(this);
 
-        this._pipeToSlave = new Pipe();
-        this._pipeToMaster = new Pipe();
+        this._pipeToSlave = new _Pipe();
+        this._pipeToMaster = new _Pipe();
 
-        this.slave = new PtySlave(this, "pty");
-        this.master = new PtyMaster(this, "pty");
+        this.slave = new _PtySlaveFile(this);
+        this.master = new _PtyMasterFile(this);
 
         this._terminalSize = null; // is set on resize
     }
 
     openNewSlave() {
-        this._pipeToSlave.onReaderDuplicate();
-        return new PtySlave(this, `pty-slave(${this._sid})`);
+        return new _PtySlaveFile(this);
     }
 
     _requestWriteOnSlave(writer) {
@@ -137,17 +144,12 @@ class PseudoTerminal {
         }
     }
 
-    terminalSize() {
-        assert(this._terminalSize, "terminal size not set");
-        return this._terminalSize;
-    }
-
     ctrlC() {
         const pgid = this.foreground_pgid;
         this._system.sendSignalToProcessGroup("interrupt", pgid);
     }
 
-    configure(config) {
+    control(config) {
         if ("mode" in config) {
             if (config.mode in PseudoTerminalMode) {
                 this._mode = config.mode;
@@ -160,19 +162,27 @@ class PseudoTerminal {
                 this._system.sendSignalToProcessGroup("terminalResize", this.foreground_pgid);
             }
             return;
+        } else if ("setForegroundPgid" in config) {
+            const pgid = config.setForegroundPgid;
+            this.foreground_pgid = pgid;
+            this._pipeToSlave.setRestrictReadsToProcessGroup(pgid);
+            return;
+        } else if ("getForegrounPgid" in config) {
+            return this.foreground_pgid;
+        } else if ("getTerminalSize" in config) {
+            assert(this._terminalSize, "terminal size not set");
+            return this._terminalSize;
         }
         throw new SysError(`invalid pty config: ${JSON.stringify(config)}`);
     }
 
-    setForegroundPgid(pgid) {
-        this.foreground_pgid = pgid;
-        this._pipeToSlave.setRestrictReadsToProcessGroup(pgid);
-    }
-
     _createCarelessWriter(text) {
         function writer(error)  {
-            console.assert(error == undefined, "Failed writing to PTY");
-            return text;
+            if (error) {
+                assert(false, `Failed writing to PTY: ${error}`);
+            } else {
+                return text;
+            }
         }
         return writer;
     }
@@ -259,34 +269,32 @@ class LineDiscipline {
     }
 }
 
-class Pipe {
+class _Pipe {
     constructor() {
         this.buffer = [];
         this.waitingReaders = [];
         this.restrictReadsToProcessGroup = null;
-        this.numReaders = 1;
-        this.numWriters = 1;
+        this._numReaders = 0;
+        this._numWriters = 0;
     }
 
-    onReaderClose() {
-        this.numReaders --;
-        assert(this.numReaders >= 0);
+    decrementNumReaders() {
+        this._numReaders --;
+        assert(this._numReaders >= 0, "non-negative number of pipe readers");
     }
 
-    onWriterClose() {
-        this.numWriters --;
-        assert(this.numWriters >= 0);
+    decrementNumWriters() {
+        this._numWriters --;
+        assert(this._numWriters >= 0,  "non-negative number of pipe writers");
         this.handleWaitingReaders();
     }
     
-    onReaderDuplicate() {
-        assert(this.numReaders > 0); // one must already exist, for duplication 
-        this.numReaders ++;
+    incrementNumReaders() {
+        this._numReaders ++;
     }
 
-    onWriterDuplicate() {
-        assert(this.numWriters > 0); // one must already exist, for duplication 
-        this.numWriters ++;
+    incrementNumWriters() {
+        this._numWriters ++;
     }
 
     setRestrictReadsToProcessGroup(pgid) {
@@ -299,7 +307,8 @@ class Pipe {
     }
 
     requestRead({reader, proc, nonBlocking}) {
-        assert(this.numReaders > 0);
+        assert(this._numReaders > 0);
+        assert(proc != null);
         
         if (nonBlocking) {
             if (this.buffer.length > 0) {
@@ -319,8 +328,8 @@ class Pipe {
     }
     
     requestWrite(writer) {
-        assert(this.numWriters > 0);
-        if (this.numReaders == 0) {
+        assert(this._numWriters > 0, "A writer must exist");
+        if (this._numReaders == 0) {
             writer("read-end is closed");
             return;
         }
@@ -331,7 +340,7 @@ class Pipe {
     }
 
     handleWaitingReaders() {
-        if (this.buffer.length > 0 || this.numWriters == 0) {
+        if (this.buffer.length > 0 || this._numWriters == 0) {
             if (this.waitingReaders.length > 0) {
                 for (let i = 0; i < this.waitingReaders.length;) {
                     const {reader, proc} = this.waitingReaders[i];
@@ -357,7 +366,7 @@ class Pipe {
         let text = "";
         let n = 0;
         if (this.buffer.length == 0) {
-            assert(this.numWriters == 0);
+            assert(this._numWriters == 0);
             // All writers have been closed.
             // All further reads on this pipe will give EOF
         } else if (this.buffer[0] == "") {
@@ -384,193 +393,310 @@ class Pipe {
     }
 }
 
-class PipeReader {
-    constructor(pipe) {
-        this.pipe = pipe;
-        this.isOpen = true;
-        this.type = FileType.PIPE;
+class NullFile {
+    requestWriteAt(_charIndex, writer) {
+        writer();
+        // The text is discarded
     }
 
-    requestRead(args) {
-        assert(this.isOpen);
-        return this.pipe.requestRead(args);
-    }
-
-    requestWrite() {
-        throw new SysError("stream is not writable");
-    }
-    
-    close() {
-        if (this.isOpen) {
-            this.isOpen = false;
-            this.pipe.onReaderClose();
-        }
-    }
-
-    duplicate() {
-        assert(this.isOpen);
-        this.pipe.onReaderDuplicate();
-        return new PipeReader(this.pipe);
-    }
-
-    seek() {
-        throw new SysError("cannot seek pipe-reader", Errno.SPIPE);
-    }
-}
-
-class PipeWriter {
-    constructor(pipe) {
-        this.pipe = pipe;
-        this.isOpen = true;
-        this.type = FileType.PIPE;
-    }
-
-    requestWrite(writer) {
-        assert(this.isOpen);
-        return this.pipe.requestWrite(writer);
-    }
-
-    requestRead() {
-        throw new SysError("stream is not readable");
-    }
-
-    close() {
-        if (this.isOpen) {
-            this.isOpen = false;
-            this.pipe.onWriterClose();
-        }
-    }
-
-    duplicate() {
-        assert(this.isOpen);
-        this.pipe.onWriterDuplicate();
-        return new PipeWriter(this.pipe);
-    }
-
-    seek() {
-        throw new SysError("cannot seek pipe-writer", Errno.SPIPE);
-    }
-}
-
-class OpenFileDescription {
-    constructor(system, id, file) {
-        this.system = system;
-        this.id = id;
-        this.file = file;
-        this.numStreams = 1;
-        this.charIndex = 0;
-    }
-
-    write(text) {
-        const existing = this.file.text;
-        this.file.text = existing.slice(0, this.charIndex) + text + existing.slice(this.charIndex + text.length);
-        this.charIndex += text.length;
-    }
-
-    read() {
-        const text = this.file.text.slice(this.charIndex);
-        this.charIndex = this.file.text.length;
-        return text;
-    }
-
-    seek(position) {
-        this.charIndex = position;
-    }
-
-    onStreamClose() {
-        this.numStreams --;
-        assert(this.numStreams >= 0);
-
-        if (this.numStreams == 0) {
-            delete this.system.openFileDescriptions[this.id];
-        }
-    }
-
-    onStreamDuplicate() {
-        assert(this.numStreams > 0); // One must exist to be duplicated
-        this.numStreams ++;
-    }
-}
-
-class FileStream {
-    constructor(openFileDescription) {
-        this.openFileDescription = openFileDescription;
-        this.isOpen = true;
-        this.type = FileType.TEXTFILE;
-    }
-
-    requestWrite(writer) {
-        assert(this.isOpen, "Cannot write to closed file stream");
-        const text = writer();
-        this.openFileDescription.write(text);
-    }
-    
-    requestRead({reader}) {
-        assert(this.isOpen);
-        const text = this.openFileDescription.read();
-        reader({text});
-    }
-
-    close() {
-        if (this.isOpen) {
-            this.isOpen = false;
-            this.openFileDescription.onStreamClose();
-        }
-    }
-
-    duplicate() {
-        assert(this.isOpen);
-        this.openFileDescription.onStreamDuplicate();
-        return new FileStream(this.openFileDescription);
-    }
-
-    seek(position) {
-        this.openFileDescription.seek(position);
-    }
-}
-
-class NullStream {
-    constructor() {
-        this.type = FileType.PIPE;
-    }
-
-    requestWrite(writer) {
-        writer(); // Whatever was written is discarded
-    }
-    
-    requestRead() {
+    requestReadAt() {
         // Will never read anything
     }
 
-    close() {}
-
-    duplicate() {
-        return this;
+    open() {
+        // relevant for pipes
     }
 
-    seek() {
-        throw new SysError("cannot seek null-stream", Errno.SPIPE);
+    close() {
+        // relevant for pipes
+    }
+
+    setLength() {
+        throw new SysError("cannot set length on null device");
+    }
+
+    getStatus() {
+        return {
+            pipe: {}
+        };
+    }
+
+    getFileType() {
+        return FileType.PIPE;
     }
 }
 
-class LogOutputStream {
-    constructor(label) {
-        this._label = label;
-        this.type = FileType.PIPE;
+class BrowserConsoleFile {
+    constructor() {
+        this._input = "";
+        this._waitingReaders = [];
+    }
+
+    // This call is meant to originate from the user typing into the browser's dev console
+    addInputFromBrowser(text) {
+        this._input += text;
+        this._checkReaders();
+    }
+
+    _checkReaders() {
+        if (this._input && this._waitingReaders.length > 0) {
+            const reader = this._waitingReaders.shift();
+            if (reader({text: this._input})) {
+                this._input = "";
+            }
+        }
+    }
+
+    requestWriteAt(_charIndex, writer) {
+        const text = writer();
+        console.log(ansiBackgroundColor(text, 45));
+    }
+
+    requestReadAt(_charIndex, {reader}) {
+        this._waitingReaders.push(reader);
+        this._checkReaders();
+    }
+
+    open() {
+        // relevant for pipes
+    }
+
+    close() {
+        // relevant for pipes
+    }
+
+    setLength() {
+        throw new SysError("cannot set length on console device");
+    }
+
+    getStatus() {
+        return {
+            pipe: {}
+        };
+    }
+
+    getFileType() {
+        return FileType.PIPE;
+    }
+}
+
+class PipeFile {
+    constructor() {
+        this._pipe = new _Pipe();
+    }
+
+    requestReadAt(_charIndex, args) {
+        this._pipe.requestRead(args);
+    }
+
+    requestWriteAt(_charIndex, writer) {
+        this._pipe.requestWrite(writer);
+    }
+
+    open(mode) {
+        if (mode == FileOpenMode.READ) {
+            this._pipe.incrementNumReaders();
+        } else if (mode == FileOpenMode.WRITE) {
+            this._pipe.incrementNumWriters();
+        } else {
+            this._pipe.incrementNumReaders();
+            this._pipe.incrementNumWriters();
+        }
+    }
+
+    close(mode) {
+        if (mode == FileOpenMode.READ) {
+            this._pipe.decrementNumReaders();
+        } else if (mode == FileOpenMode.WRITE) {
+            this._pipe.decrementNumWriters();
+        } else {
+            this._pipe.decrementNumReaders();
+            this._pipe.decrementNumWriters();
+        }
+    }
+
+    setLength() {
+        throw new SysError("cannot set length on pipe");
+    }
+
+    getStatus() {
+        return {
+            pipe: {}
+        };
+    }
+
+    getFileType() {
+        return FileType.PIPE;
+    }
+}
+
+class TextFile {
+    constructor(text) {
+        this.text = text;
+    }
+
+    requestWriteAt(charIndex, writer) {
+        const existing = this.text;
+        const text = writer();
+        this.text = existing.slice(0, charIndex) + text + existing.slice(charIndex + text.length);
+    }
+
+    requestReadAt(charIndex, {reader}) {
+        const text = this.text.slice(charIndex);
+        reader({text});
+    }
+
+    open() {
+        // relevant for pipes
+    }
+
+    close() {
+        // relevant for pipes
+    }
+
+    setLength(length) {
+        this.text = this.text.slice(0, length);
+    }
+
+    getStatus() {
+        return {
+            text: {
+                length: this.text.length
+            }
+        };
+    }
+
+    getFileType() {
+        return FileType.TEXT;
+    }
+}
+
+const FileOpenMode = {
+    READ: "READ",
+    WRITE: "WRITE",
+    READ_WRITE: "READ_WRITE",
+}
+
+class OpenFileDescription {
+    constructor(system, id, file, mode) {
+        this._system = system;
+        this._id = id;
+        this._file = file;
+        this._mode = mode;
+        this._refCount = 1;
+        this._charIndex = 0;
+
+        this._file.open(mode);
     }
 
     requestWrite(writer) {
-        const text = writer();
-        console.log(this._label, text);
-    }
-    
-    close() {}
+        if (this._mode == FileOpenMode.READ) {
+            writer("write not allowed");
+            return;
+        }
 
-    duplicate() {
-        return this;
+        const wrappedWriter = (error) => {
+            if (error == null) {
+                const text = writer();
+                this._charIndex += text.length;
+                return text;
+            } else {
+                writer(error);
+            }
+        }
+
+        this._file.requestWriteAt(this._charIndex, wrappedWriter);
+        
     }
 
-    seek() {
-        throw new SysError("cannot seek log-stream", Errno.SPIPE);
+    requestRead({proc, reader}) {
+        // TODO also forward "nonBlocking" arg?
+        if (this._mode == FileOpenMode.WRITE) {
+            reader({error: "read not allowed"});
+            return;
+        }
+
+        const wrappedReader = ({text, error}) => {
+            if (error == null) {
+                assert(text != null);
+                this._charIndex += text.length; 
+            }
+            return reader({text, error});
+        }
+
+        this._file.requestReadAt(this._charIndex, {proc, reader: wrappedReader});
+    }
+
+    seek(position) {
+        assert(position != undefined);
+        this._charIndex = position;
+    }
+
+    decrementRefCount() {
+        this._refCount --;
+        assert(this._refCount >= 0);
+
+        if (this._refCount == 0) {
+            this._file.close(this._mode);
+            delete this._system.openFileDescriptions[this._id];
+        }
+    }
+
+    incrementRefCount() {
+        assert(this._refCount > 0); // One must exist to be duplicated
+        this._refCount ++;
+    }
+
+    setLength(length) {
+        this._file.setLength(length);
+    }
+
+    getFileType() {
+        return this._file.getFileType();
     }
 }
+
+class FileDescriptor {
+    constructor(openFileDescription) {
+        this._openFileDescription = openFileDescription;
+        this._isOpen = true;
+    }
+
+    requestWrite(writer) {
+        assert(this._isOpen, "Cannot write to closed file descriptor");
+        this._openFileDescription.requestWrite(writer);
+    }
+    
+    requestRead(args) {
+        assert(this._isOpen);
+        this._openFileDescription.requestRead(args);
+    }
+
+    close() {
+        if (this._isOpen) {
+            this._isOpen = false;
+            this._openFileDescription.decrementRefCount();
+        }
+    }
+
+    duplicate() {
+        assert(this._isOpen);
+        this._openFileDescription.incrementRefCount();
+        return new FileDescriptor(this._openFileDescription);
+    }
+
+    seek(position) {
+        assert(this._isOpen);
+        this._openFileDescription.seek(position);
+    }
+
+    setLength(length) {
+        assert(this._isOpen);
+        this._openFileDescription.setLength(length);
+    }
+
+    getFileType() {
+        return this._openFileDescription.getFileType();
+    }
+}
+

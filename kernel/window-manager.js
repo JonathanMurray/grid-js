@@ -531,12 +531,9 @@ class WindowManager {
             dropdownWrapper.querySelector(".dropdown").style.left = `${buttonX - windowX}px`;
         }
 
-        this.windows[pid] = win;
-        console.log("Added window. ", this.windows);
-
         const dockItem = await WindowManager.render("dock-item.mustache", {pid, programName: win.process.programName});
         dockItem.addEventListener("mousedown", (event) => {
-            this.setFocused({window: this.windows[pid]});
+            this.setFocused({window: win});
 
              // Prevent window manager from taking focus from the window
              event.stopPropagation();
@@ -545,10 +542,13 @@ class WindowManager {
 
         this.setFocused({window: win});
 
+        this.windows[pid] = win;
+        console.log("Added window. ", this.windows);
+        
         const offscreenCanvas = canvas.transferControlToOffscreen();
         return offscreenCanvas;
     }
-    
+
     removeWindowIfExists(pid) {
         const win = this.getWindow(pid);
         if (win) {
@@ -557,6 +557,7 @@ class WindowManager {
             console.log("Removed window. ", this.windows);
 
             const dockItem = document.getElementById(`dock-item-${pid}`);
+            assert(dockItem, `dock item must exist, pid=${pid}`);
             dockItem.remove();
         }
 

@@ -22,11 +22,11 @@ class Editor {
     }
 
     async saveToFile() {
-        const streamId = await syscall("openFile", {fileName: this.fileName});
+        const fd = await syscall("openFile", {fileName: this.fileName});
         const text = this._doc.lines.join("\n");
-        await syscall("write", {streamId, text});
-        await syscall("setFileLength", {streamId, length: text.length});
-        await syscall("closeStream", {streamId});
+        await syscall("write", {fd, text});
+        await syscall("setFileLength", {fd, length: text.length});
+        await syscall("close", {fd});
         this._hasUnsavedChanges = false;
         this._update();
     }
@@ -178,10 +178,10 @@ async function main(args) {
     const size = [800, 600];
     const window = await stdlib.createWindow("Editing: " + fileName, size);
 
-    const streamId = await syscall("openFile", {fileName, createIfNecessary: true});
-    const text = await syscall("read", {streamId});
+    const fd = await syscall("openFile", {fileName, createIfNecessary: true});
+    const text = await syscall("read", {fd});
     const lines = text.split("\n");
-    await syscall("closeStream", {streamId});
+    await syscall("close", {fd});
 
     const app = new Editor(window.canvas, fileName, lines);
 

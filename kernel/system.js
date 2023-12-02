@@ -1,27 +1,19 @@
 "use strict";
 
-class TextFile {
-    constructor(text) {
-        this.text = text;
-    }
-}
+
 
 class System {
 
     constructor(files) {
-        this.files = files;
-
-        this.syscalls = new Syscalls(this);
-
-        this.nextPid = 1;
-        this.processes = {};
-
-        this.pseudoTerminals = {};
-     
-        this.windowManager = null;
+        this._fileSystem = files;
+        this._syscalls = new Syscalls(this);
+        this._nextPid = 1;
+        this._processes = {};
+        this._pseudoTerminals = {};
+        this._windowManager = null;
 
         // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
-        this.nextOpenFileDescriptionId = 1;
+        this._nextOpenFileDescriptionId = 1;
         this.openFileDescriptions = {};
     }
 
@@ -39,11 +31,12 @@ class System {
         const programs = [
             "cat",
             "countdown",
-            "crash", 
+            "crash",
             "diagnose",
             "echo",
             "editor", 
             "inspect",
+            "json",
             "kill",
             "launcher", 
             "less",
@@ -71,19 +64,28 @@ class System {
             files[program] = new TextFile(text);
         }
 
+        files["con"] = new BrowserConsoleFile();
+        files["null"] = new NullFile();
+        files["p"] = new PipeFile();
+
         const system = new System(files);
 
         function spawnFromUi(programName) {
-            const streams = {1: new NullStream(), 2: new NullStream()};
-            system.spawnProcess({programName, args: [], streams, ppid: null, pgid: "START_NEW", sid: null});    
+            const nullStream = system._addOpenFileDescription(files["null"], FileOpenMode.READ_WRITE);
+            const fds = {0: nullStream, 1: nullStream.duplicate()};
+            system._spawnProcess({programName, args: [], fds, ppid: null, pgid: "START_NEW", sid: null});    
         }
 
-        system.windowManager = await WindowManager.init(spawnFromUi);
+        system._windowManager = await WindowManager.init(spawnFromUi);
 
-        system.spawnProcess({programName: "terminal", args: ["shell"], streams: {1: new LogOutputStream("[TERMINAL]")}, ppid: null, pgid: "START_NEW", sid: null});
-        //system.spawnProcess({programName: "sudoku", args: ["crash"], streams: {1: new LogOutputStream("[MAIN]"), 0: new NullStream()}, ppid: null, pgid: "START_NEW", sid: null});
+        const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
+        system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
+    }
+
+    writeInputFromBrowser(text) {
+        this._fileSystem["con"].addInputFromBrowser(text);
     }
 
     static async fetchProgram(programName) {
@@ -94,11 +96,11 @@ class System {
     }
 
     async call(syscall, args, pid) {
-        if (!(syscall in this.syscalls)) {
+        if (!(syscall in this._syscalls)) {
             throw new SysError(`no such syscall: '${syscall}'`);
         }
 
-        const proc = this.processes[pid];
+        const proc = this._processes[pid];
         assert(proc != undefined);
 
         if (args == undefined) {
@@ -108,7 +110,7 @@ class System {
 
         proc.syscallCount += 1;
         
-        return await this.syscalls[syscall](proc, args);
+        return await this._syscalls[syscall](proc, args);
     }
 
     waitForOtherProcessToExit(pid, pidToWaitFor, nonBlocking) {
@@ -123,15 +125,17 @@ class System {
             }
         }
 
-        console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
+        //console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
         const self = this;
         return proc.waitForOtherToExit(procToWaitFor).then((exitValue) => {
             //console.log(`${pid} successfully waited for ${pidToWaitFor} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
-            delete self.processes[pidToWaitFor];
+            delete self._processes[pidToWaitFor];
             //console.log("After deletion; processes: ", self.processes);
 
             if (exitValue instanceof Error) {
-                throw exitValue;
+                // The error we have here is the wrapped error created in process-worker.js, i.e. it's of type Error
+                // and not easily parseable. So we'll wrap it once again to make it parseable.
+                throw new SysError(`process exit value: ${exitValue}`);
             }
 
             return exitValue;
@@ -145,17 +149,17 @@ class System {
         } else if ("crashed" in message.data) {
             this.handleProcessCrashed(pid, message.data.crashed)
         } else if ("resizeDone" in message.data) {
-            this.windowManager.onResizeDone(pid);
+            this._windowManager.onResizeDone(pid);
         } else {
             console.error("Unhandled message from worker: ", message);
         }
     }
 
     handleProcessCrashed(pid, error) {
-        const proc = this.processes[pid];
+        const proc = this._processes[pid];
         assert(proc != undefined);
 
-        const stdout = proc.streams[1];
+        const stdout = proc.fds[1];
         if (stdout != undefined) {
 
             const programName = proc.programName;
@@ -206,7 +210,7 @@ class System {
                 if (deepestStackPosition != null) {
                     let [lineNumber, colNumber] = deepestStackPosition;
 
-                    const code = this.files[programName].text;
+                    const code = this._fileSystem[programName].text;
                     let line = code.split("\n")[lineNumber - 1];
 
                     if (line !== undefined) {
@@ -255,7 +259,7 @@ class System {
 
         console.debug(pid, `${syscall}(${JSON.stringify(arg)}) ...`);
         this.call(syscall, arg, pid).then((result) => {
-            if (pid in this.processes) {
+            if (pid in this._processes) {
                 console.debug(pid, `... ${syscall}() --> ${JSON.stringify(result)}`);
                 let transfer = [];
                 if (result instanceof OffscreenCanvas) {
@@ -263,67 +267,78 @@ class System {
                     // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
                     transfer.push(result);
                 }
-                this.processes[pid].worker.postMessage({syscallResult: {success: result, sequenceNum}}, transfer);
+                this._processes[pid].worker.postMessage({syscallResult: {success: result, sequenceNum}}, transfer);
             }
         }).catch((error) => {
-            if (pid in this.processes) {
+            if (pid in this._processes) {
                 if (error instanceof SysError || error.name == "ProcessInterrupted" || error.name == "SysError") {
                     console.debug(pid, `... ${syscall}() --> `, error);
                 } else {
                     console.error(pid, `... ${syscall}() --> `, error);
                 }
-                this.processes[pid].worker.postMessage({syscallResult: {error, sequenceNum}});
+                this._processes[pid].worker.postMessage({syscallResult: {error, sequenceNum}});
             }
         });
     }
 
-    spawnProcess({programName, args, streams, ppid, pgid, sid}) {
+    _spawnProcess({programName, args, fds, ppid, pgid, sid}) {
         assert(args != undefined);
-        if (programName in this.files) {
-            const lines = this.files[programName].text.split("\n");
-            if (lines[0] == "<script>") {
-                const code = lines.slice(1).join("\n");
-                const pid = this.nextPid ++;
-                if (pgid == "START_NEW") {
-                    pgid = pid;  // The new process becomes leader of a new process group
-                }
-                if (sid == null) {
-                    sid = pid;  // The new process becomes leader of a new session
-                }
+        const file = this._fileSystem[programName];
 
-                const worker = new Worker("kernel/process-worker.js", {name: `[${pid}] ${programName}` });
-                const proc = new Process(worker, code, programName, args, pid, streams, ppid, pgid, sid);
-                this.processes[pid] = proc;
+        if (file === undefined) {
+            throw new SysError("no such program file: " + programName);
+        }
 
-                console.log(`[${pid}] NEW PROCESS (${programName}). parent=${ppid}, group=${pgid}, session=${sid}`)
-                
-                worker.postMessage({startProcess: {programName, code, args, pid}});
-                worker.onmessage = (msg) => this.handleMessageFromWorker(pid, msg);
-
-                return pid;
-            }
+        if (!(file instanceof TextFile)) {
             throw new SysError("file is not runnable: " + programName);
         }
-        throw new SysError("no such program file: " + programName);
+
+        const lines = file.text.split("\n");
+
+        if (lines[0] !== "<script>") {
+            throw new SysError("file is not runnable: " + programName);
+        }
+
+        const code = lines.slice(1).join("\n");
+        const pid = this._nextPid ++;
+        if (pgid == "START_NEW") {
+            pgid = pid;  // The new process becomes leader of a new process group
+        }
+        if (sid == null) {
+            sid = pid;  // The new process becomes leader of a new session
+        }
+
+        const worker = new Worker("kernel/process-worker.js", {name: `[${pid}] ${programName}` });
+        const proc = new Process(worker, code, programName, args, pid, fds, ppid, pgid, sid);
+        this._processes[pid] = proc;
+
+        console.log(`[${pid}] NEW PROCESS (${programName}). parent=${ppid}, group=${pgid}, session=${sid}`)
+
+        worker.postMessage({startProcess: {programName, code, args, pid}});
+        worker.onmessage = (msg) => this.handleMessageFromWorker(pid, msg);
+
+        return pid;
     }
 
     createWindow(title, size, proc, resizable, menubarItems) {
-        return this.windowManager.createWindow(title, size, proc, resizable, menubarItems);
+        return this._windowManager.createWindow(title, size, proc, resizable, menubarItems);
     }
 
     onProcessExit(proc, exitValue) {
         const pid = proc.pid;
         assert(pid != undefined);
-        console.log(`[${pid}] PROCESS EXIT`, exitValue)
+        //console.log(`[${pid}] PROCESS EXIT`, exitValue, `prev exit value: ${proc.exitValue}, fds=`, proc.fds);
         if (proc.exitValue == null) {
             proc.onExit(exitValue);
-            this.windowManager.removeWindowIfExists(pid);
+
+            this._windowManager.removeWindowIfExists(pid);
             
-            if (proc.pid == proc.sid && proc.sid in this.pseudoTerminals) {
+            // TODO Handle this inside PTY close() instead?
+            if (proc.pid == proc.sid && proc.sid in this._pseudoTerminals) {
                 console.log(`[${proc.pid}] Session leader controlling PTTY dies. Sending HUP to foreground process group.`)
-                const pty = this.pseudoTerminals[proc.sid];
+                const pty = this._pseudoTerminals[proc.sid];
                 this.sendSignalToProcessGroup("hangup", pty.foreground_pgid);
-                delete this.pseudoTerminals[proc.sid];
+                delete this._pseudoTerminals[proc.sid];
             }
     
             //console.log("Pseudo terminal sids: ", Object.keys(this.pseudoTerminals));
@@ -332,11 +347,11 @@ class System {
 
     listProcesses() {
         let procs = [];
-        for (let pid of Object.keys(this.processes)) {
+        for (let pid of Object.keys(this._processes)) {
             const proc = this.process(pid);
-            let streams = {};
-            for (const [streamId, stream] of Object.entries(proc.streams)) {
-                streams[streamId] = stream.type;
+            let fds = {};
+            for (const [fd, value] of Object.entries(proc.fds)) {
+                fds[fd] = value.getFileType();
             }
             procs.push({
                 pid, 
@@ -346,42 +361,118 @@ class System {
                 pgid: proc.pgid, 
                 exitValue: proc.exitValue, 
                 syscallCount: proc.syscallCount,
-                streams,
+                fds,
             });
         }
         return procs;
     }
 
     procOpenFile(proc, fileName, createIfNecessary) {
-        let file = this.files[fileName];
+        let file = this._fileSystem[fileName];
         if (file == undefined) {
             if (createIfNecessary) {
                 file = new TextFile("");
-                this.files[fileName] = file;
+                this._fileSystem[fileName] = file;
             } else {
                 throw new SysError("no such file");
             }
         }
 
-        const id = this.nextOpenFileDescriptionId ++;
-        const openFileDescription = new OpenFileDescription(this, id, file);
-        this.openFileDescriptions[id] = openFileDescription;
-        const fileStream = new FileStream(openFileDescription);
-
-        const streamId = proc.addStream(fileStream);
-        return streamId;
+        const fileDescriptor = this._addOpenFileDescription(file, FileOpenMode.READ_WRITE);
+        const fd = proc.addFileDescriptor(fileDescriptor);
+        return fd;
     }
 
-    procSetFileLength(proc, streamId, length) {
-        const file = proc.streams[streamId].openFileDescription.file;
-        file.text = file.text.slice(0, length);
+    _addOpenFileDescription(file, mode) {
+        const id = this._nextOpenFileDescriptionId ++;
+        const openFileDescription = new OpenFileDescription(this, id, file, mode);
+        this.openFileDescriptions[id] = openFileDescription;
+        return new FileDescriptor(openFileDescription);
+    }
+
+    procCreateUnnamedPipe(proc) {
+        const pipeFile = new PipeFile();
+        const reader = this._addOpenFileDescription(pipeFile, FileOpenMode.READ);
+        const writer = this._addOpenFileDescription(pipeFile, FileOpenMode.WRITE);
+        const readerId = proc.addFileDescriptor(reader);
+        const writerId = proc.addFileDescriptor(writer);
+        return {readerId, writerId};
+    }
+
+    getFileStatus(fileName) {
+        const file = this._fileSystem[fileName];
+        if (file === undefined) {
+            throw new SysError("no such file");
+        }
+        return file.getStatus();
+    }
+
+    listFiles() {
+        return Object.keys(this._fileSystem);
+    }
+
+    procSpawn(proc, programName, args, fds, pgid) {
+
+        let fileDescriptors = {};
+        try {
+            if (fds != undefined) {
+                for (let i = 0; i < fds.length; i++) {
+                    const parentFd = parseInt(fds[i]);
+                    const fileDescriptor = proc.fds[parentFd].duplicate();
+                    assert(fileDescriptor != undefined);
+                    fileDescriptors[i] = fileDescriptor;
+                }
+            } else {
+                // Inherit the parent's fds
+                for (let i in proc.fds) {
+                    fileDescriptors[i] = proc.fds[i].duplicate();
+                }
+            }
+    
+            if (pgid != "START_NEW") {
+                if (pgid != undefined) {
+                    // TODO: Should only be allowed if that group belongs to the same session as this process
+                    // Join a specific existing process group
+                    pgid = parseInt(pgid);
+                } else {
+                    // Join the parent's process group
+                    pgid = proc.pgid;
+                }
+            }
+    
+            // Join the parent's session
+            const sid = proc.sid;
+            
+            return this._spawnProcess({programName, args, fds: fileDescriptors, ppid: proc.pid, pgid, sid});
+        } catch (e) {
+
+            // Normally, a process closes its file descriptors upon exit, but here we failed to spawn the process.
+            for (let fd in fileDescriptors) {
+                fileDescriptors[fd].close();
+            }
+
+            throw e;
+        }
+    }
+
+    procSendSignalToProcess(proc, signal, pid) {
+        if (pid == proc.pid) {
+            // TODO: shouldn't be able to kill ancestors either?
+            throw new SysError("process cannot kill itself");
+        }
+        const receiverProc = this.process(pid);
+        if (receiverProc != undefined) {
+            this.sendSignalToProcess(signal, receiverProc);
+        } else {
+            throw new SysError("no such process");
+        }
     }
 
     sendSignalToProcessGroup(signal, pgid) {
         let foundSome = false;
         // Note: likely quite bad performance below
-        for (let pid of Object.keys(this.processes)) {
-            const proc = this.processes[pid];
+        for (let pid of Object.keys(this._processes)) {
+            const proc = this._processes[pid];
             if (proc.pgid == pgid) {
                 this.sendSignalToProcess(signal, proc);
                 foundSome = true;
@@ -414,10 +505,10 @@ class System {
     }
 
     process(pid) {
-        if (!(pid in this.processes)) {
+        if (!(pid in this._processes)) {
             throw new SysError("no such process: " + pid);
         }
-        return this.processes[pid];
+        return this._processes[pid];
     }
 
     createPseudoTerminal(proc) {
@@ -429,37 +520,33 @@ class System {
         }
 
         const pty = new PseudoTerminal(this, proc.sid);
-        this.pseudoTerminals[proc.sid] = pty;
+        this._pseudoTerminals[proc.sid] = pty; // TODO
 
-        const master = proc.addStream(pty.master);
-        const slave = proc.addStream(pty.slave);
+        const master = this._addOpenFileDescription(pty.master, FileOpenMode.READ_WRITE);
+        const slave = this._addOpenFileDescription(pty.slave, FileOpenMode.READ_WRITE);
 
-        return {master, slave};
+        const masterId = proc.addFileDescriptor(master);
+        const slaveId = proc.addFileDescriptor(slave);
+
+        return {master: masterId, slave: slaveId};
     }
-
-    configurePseudoTerminal(proc, config) {
-        const pty = this.pseudoTerminals[proc.sid];
-        if (pty == undefined) {
-            throw new SysError("no pseudoterminal connected to session");
-        }
-        pty.configure(config);
-    }
-
+    
     procOpenPseudoTerminalSlave(proc) {
-        const pty = this.pseudoTerminals[proc.sid];
+        const pty = this._pseudoTerminals[proc.sid];
         if (pty == undefined) {
             throw new SysError("no pseudoterminal connected to session");
         }
-        const streamId = proc.addStream(pty.openNewSlave());
-        return streamId;
+        const slave = this._addOpenFileDescription(pty.openNewSlave(), FileOpenMode.READ_WRITE);
+        const slaveId = proc.addFileDescriptor(slave);
+        return slaveId;
     }
 
-    getTerminalSize(proc) {
-        const pty = this.pseudoTerminals[proc.sid];
+    controlPseudoTerminal(proc, config) {
+        const pty = this._pseudoTerminals[proc.sid];
         if (pty == undefined) {
             throw new SysError("no pseudoterminal connected to session");
         }
-        return pty.terminalSize();
+        return pty.control(config);
     }
 }
 
@@ -469,12 +556,10 @@ const SignalBehaviour = {
     HANDLE: "HANDLE"
 };
 
-
-
 class SysError {
     constructor(message, errno) {
-        this.message = message;
         this.name = "SysError";
+        this.message = message;
         this.errno = errno;
     }
 }

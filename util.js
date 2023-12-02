@@ -66,7 +66,7 @@ const Errno = {
 const FileType = {
     PTY: "PTY",
     PIPE: "PIPE",
-    TEXTFILE: "TEXTFILE"
+    TEXT: "TEXT"
 }
 
 class TextWithCursor {

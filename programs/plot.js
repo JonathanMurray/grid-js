@@ -51,7 +51,6 @@ class Plot {
         ctx.moveTo(coords[0], coords[1]);
         for (; x < xRange; x += 0.01) {
             y = f(x);
-            console.debug(x, y);
             const coords = this.coordinates(x, y);
             ctx.lineTo(coords[0], coords[1]);
         }

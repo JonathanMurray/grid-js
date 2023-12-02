@@ -1,38 +1,42 @@
 
 class Process {
 
-    constructor(worker, code, programName, args, pid, streams, ppid, pgid, sid) {
-        assert(streams != undefined);
+    constructor(worker, code, programName, args, pid, fds, ppid, pgid, sid) {
+        assert(fds != undefined);
         assert(Number.isInteger(pid));
         assert(Number.isInteger(pgid));
         assert(Number.isInteger(sid));
+        this.programName = programName;
         this.worker = worker;
         this.code = code;
         this.pid = pid; // Process ID
         this.ppid = ppid; // Parent process ID
         this.pgid = pgid // Process group ID
         this.sid = sid; // Session ID
-        this.programName = programName;
         this.args = args;
         
-        this.streams = streams; // For reading and writing. By convention 0=stdin, 1=stdout
-        this.nextStreamId = 0;
-        for (let streamId of Object.keys(streams)) {
-            streamId = parseInt(streamId);
-            this.nextStreamId = Math.max(this.nextStreamId, streamId + 1);
+        /** Maps fd (int) to FileDescriptor
+         * By convention, 0=stdin, 1=stdout
+         */
+        this.fds = fds;
+
+        this._nextFd = 0;
+        for (let fd of Object.keys(fds)) {
+            fd = parseInt(fd);
+            this._nextFd = Math.max(this._nextFd, fd + 1);
         }
-        assert(this.nextStreamId != NaN);
+        assert(this._nextFd != NaN);
         
         this.exitValue = null;
-        this.exitWaiters = [];
+        this._exitWaiters = [];
 
         this.interruptSignalBehaviour = SignalBehaviour.EXIT;
 
         // Historic count, useful for getting a sense of how busy a process is
         this.syscallCount = 0;
 
-        this.nextPromiseId = 1;
-        this.syscallHandles = {};
+        this._nextPromiseId = 1;
+        this._syscallHandles = {};
     }
 
     receiveInterruptSignal() {
@@ -40,11 +44,11 @@ class Process {
         if (behaviour == SignalBehaviour.EXIT) {
             return true;
         } else if (behaviour == SignalBehaviour.HANDLE) {
-            console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this.syscallHandles)}`)
+            console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this._syscallHandles)}`)
             // Any ongoing syscalls will throw an error that can be
             // caught in the application code.
-            for (let id of Object.keys(this.syscallHandles)) {
-                this.rejectPromise(id, {name: "ProcessInterrupted", message: "interrupted"});
+            for (let id of Object.keys(this._syscallHandles)) {
+                this._rejectPromise(id, {name: "ProcessInterrupted", message: "interrupted"});
             }
         } else if (behaviour == SignalBehaviour.IGNORE) {
             console.log(`[${this.pid}] ignoring interrupt signal`)
@@ -56,51 +60,51 @@ class Process {
         this.worker.postMessage({"terminalResizeSignal": null});;
     }
 
-    promise() {
+    _promise() {
         let resolver;
         let rejector;
         const promise = new Promise((resolve, reject) => {
             resolver = resolve;
             rejector = reject;
         });
-        const promiseId = this.nextPromiseId ++;
-        this.syscallHandles[promiseId] = {resolve: resolver, reject: rejector};
+        const promiseId = this._nextPromiseId ++;
+        this._syscallHandles[promiseId] = {resolve: resolver, reject: rejector};
         return {promise, promiseId};
     }
 
-    rejectPromise(id, error) {
-        this.syscallHandles[id].reject(error);
-        delete this.syscallHandles[id];
+    _rejectPromise(id, error) {
+        this._syscallHandles[id].reject(error);
+        delete this._syscallHandles[id];
     }
 
-    resolvePromise(id, result) {
-        if (id in this.syscallHandles) {
-            this.syscallHandles[id].resolve(result);
-            delete this.syscallHandles[id];
+    _resolvePromise(id, result) {
+        if (id in this._syscallHandles) {
+            this._syscallHandles[id].resolve(result);
+            delete this._syscallHandles[id];
             return true;
         }
         // Promise was not resolved. It had likely been rejected already.
         return false;
     }
     
-    write(streamId, text) {
-        const outputStream = this.streams[streamId];
-        if (outputStream == undefined) {
-            throw new SysError("no such stream");
+    write(fd, text) {
+        const fileDescriptor = this.fds[fd];
+        if (fileDescriptor == undefined) {
+            throw new SysError("no such fd");
         }
-        const {promise, promiseId} = this.promise();
+        const {promise, promiseId} = this._promise();
         const self = this;
-        outputStream.requestWrite((error) => {
+        fileDescriptor.requestWrite((error) => {
             if (error != null) {
-                this.rejectPromise(promiseId, error);
+                this._rejectPromise(promiseId, error);
                 return null;
             }
 
             if (self.exitValue != null) {
                 return null; // signal that we are no longer attempting to write
             }
-            if (this.resolvePromise(promiseId)) {
-                return text; // give the text to the stream
+            if (this._resolvePromise(promiseId)) {
+                return text; // give the text to the fd
             }
             return null; // We ended up not writing.
         });
@@ -108,40 +112,54 @@ class Process {
         return promise;
     }
 
-    read(streamId, nonBlocking) {
-        const inputStream = this.streams[streamId];
-        assert(inputStream != undefined, `No stream found with ID ${streamId}. Streams: ${Object.keys(this.streams)}`)
-        const {promise, promiseId} = this.promise();
+    read(fd, nonBlocking) {
+        const fileDescriptor = this.fds[fd];
+        assert(fileDescriptor != undefined, `No such fd: ${fd}. file descriptors: ${Object.keys(this.fds)}`)
+        const {promise, promiseId} = this._promise();
         const reader = ({error, text}) => {
             if (error != undefined) {
-                this.rejectPromise(promiseId, error);
+                this._rejectPromise(promiseId, error);
                 return false; // No read occurred
             }
-            const didRead = this.resolvePromise(promiseId, text);
+            const didRead = this._resolvePromise(promiseId, text);
             return didRead;
         }
-        inputStream.requestRead({reader, proc: this, nonBlocking});
+        fileDescriptor.requestRead({reader, proc: this, nonBlocking});
         return promise;
     }
 
-    closeStream(streamId) {
-        this.streams[streamId].close();
-        delete this.streams[streamId];
+    close(fd) {
+        this.fds[fd].close();
+        delete this.fds[fd];
     }
 
-    addStream(stream) {
-        const streamId = this.nextStreamId ++;
-        this.streams[streamId] = stream;
-        return streamId;
+    addFileDescriptor(fileDescriptor) {
+        const fd = this._nextFd ++;
+        this.fds[fd] = fileDescriptor;
+        return fd;
+    }
+
+    setFileLength(fd, length) {
+        this.fds[fd].setLength(length);
+    }
+
+    seekInFile(fd, position) {
+        this.fds[fd].seek(position);
+    }
+
+    getFileType(fd) {
+        const fileDescriptor = this.fds[fd];
+        return fileDescriptor.getFileType();
     }
 
     onExit(exitValue) {
-        //console.log(this.pid, "onExit", exitValue);
+        console.log(this.pid, "onExit", exitValue);
         this.exitValue = exitValue;
 
-        for (let streamId in this.streams) {
-            this.streams[streamId].close();
+        for (let fd in this.fds) {
+            this.fds[fd].close();
         }
+        this.fds = {};
 
         this.worker.terminate();
 
@@ -150,7 +168,7 @@ class Process {
 
     handleExitWaiters() {
         if (this.exitValue != null) {
-            for (let waiter of this.exitWaiters) {
+            for (let waiter of this._exitWaiters) {
                 //console.log(this.pid, "calling waiter");
                 waiter(this.exitValue);
             }
@@ -158,27 +176,27 @@ class Process {
     }
 
     waitForOtherToExit(otherProc) {
-        const {promise, promiseId} = this.promise();
+        const {promise, promiseId} = this._promise();
         
         function resolve(exitValue) {
             //console.log(this.pid, "waitForExit was resolved: ", exitValue);
-            this.resolvePromise(promiseId, exitValue);
+            this._resolvePromise(promiseId, exitValue);
         }
 
-        otherProc.exitWaiters.push(resolve.bind(this));
+        otherProc._exitWaiters.push(resolve.bind(this));
         otherProc.handleExitWaiters();
         return promise;
     }
 
     sleep(millis) {
-        const {promise, promiseId} = this.promise();
-        
+        const {promise, promiseId} = this._promise();
+
         const granularityMs = 10;
         const waitUntil = Date.now() + millis;
 
         function maybeWakeUp() {
             if (Date.now() > waitUntil) {
-                this.resolvePromise(promiseId);
+                this._resolvePromise(promiseId);
             } else {
                 setTimeout(maybeWakeUp.bind(this), granularityMs);
             }
@@ -189,4 +207,9 @@ class Process {
         return promise;
     }
 
+    joinNewSessionAndProcessGroup() {
+        // Note that this has no effect if the process is already session leader and process group leader.
+        this.sid = this.pid;
+        this.pgid = this.pid;
+    }
 }

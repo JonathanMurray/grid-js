@@ -4,11 +4,11 @@ async function main(args) {
     try {
         if (args.length >= 1) {
             const fileName = args[0];
-            const streamId = await syscall("openFile", {fileName});
-            await run(streamId);
+            const fd = await syscall("openFile", {fileName});
+            await run(fd);
         } else {
             const stdin = 0;
-            const fileType = await syscall("getStreamFileType", {streamId: stdin});
+            const fileType = await syscall("getFileType", {fd: stdin});
             if (fileType == FileType.PTY) {
                 writeError("specify file or use non-pty stdin")
                 return;
@@ -24,10 +24,10 @@ async function main(args) {
     }
 }
 
-async function run(contentStreamId) {
+async function run(contentFd) {
 
     // https://unix.stackexchange.com/questions/452757/how-does-less-take-data-from-stdin-while-still-be-able-to-read-commands-from-u
-    const ptyInputStreamId = await syscall("openPseudoTerminalSlave");
+    const ptyInputFd = await syscall("openPseudoTerminalSlave");
 
     await syscall("handleInterruptSignal");
     await syscall("configurePseudoTerminal", {mode: "CHARACTER_AND_SIGINT"});
@@ -47,14 +47,14 @@ async function run(contentStreamId) {
 
     async function loadContents() {
         try {
-            await syscall("seekInFile", {streamId: contentStreamId, position: 0});
+            await syscall("seekInFile", {fd: contentFd, position: 0});
         } catch (error) {
             // The input stream may not be seekable.
             if (error.errno != Errno.SPIPE) {
                 throw error;
             }
         }
-        const text = await read(contentStreamId);
+        const text = await read(contentFd);
         lines = text.split(/\n|\r\n/);
         doc = new DocumentWithCursor(lines);
         lineNumberWidth = doc.lines.length.toString().length;
@@ -131,7 +131,7 @@ async function run(contentStreamId) {
 
     while (true) {
         await render();
-        const input = await read(ptyInputStreamId);
+        const input = await read(ptyInputFd);
 
         let isNumber = /^\d+$/.test(input);
         if (isNumber) {

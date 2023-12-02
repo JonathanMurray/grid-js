@@ -97,7 +97,7 @@ function sandbox(code, args) {
                 try {
                     result = sandbox(code, args);
                     Promise.resolve(result)
-                        .then((value) => { console.log("Program result: ", value); syscall("exit");})
+                        .then((value) => { console.debug("Program result: ", value); syscall("exit");})
                         .catch((e) => { onProgramCrashed(e); });
                 } catch (e) {
                     onProgramCrashed(e);

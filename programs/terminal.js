@@ -64,13 +64,13 @@ async function main(args) {
     draw();
 
     try {
-        childPid = await syscall("spawn", {program: programName, streamIds: [ptySlave, ptySlave],
+        childPid = await syscall("spawn", {program: programName, fds: [ptySlave, ptySlave],
                                  pgid: "START_NEW"});
 
-        await syscall("closeStream", {streamId: ptySlave});
+        await syscall("close", {fd: ptySlave});
 
         const childPgid = childPid; // The child is process group leader
-        await syscall("setForegroundProcessGroupOfPseudoTerminal", {pgid: childPgid});
+        await syscall("setPtyForegroundPgid", {pgid: childPgid});
 
         async function recomputeTerminalSize() {
             terminalSize = [Math.floor(canvas.width/ cellSize[0]), Math.floor(canvas.height / cellSize[1])];
@@ -113,7 +113,6 @@ async function main(args) {
             }
         }
         window.ondropdown = ({itemId}) => {
-            console.log(itemId);
             if (itemId == "DARK") {
                 terminalGrid.setDefaultBackground("black");
                 terminalGrid.setDefaultForeground("white");
@@ -143,7 +142,6 @@ async function main(args) {
             } else if(event.ctrlKey && key == "d") {
                 sequence = ASCII_END_OF_TRANSMISSION;
             } else if (event.ctrlKey && key == "-") {
-                console.log("SMALLER");
                 changeFontSize(0.9);
             } else if (event.ctrlKey && key == "+") {
                 changeFontSize(1.11);
@@ -178,7 +176,7 @@ async function main(args) {
         };
     
         while (true) {
-            let text = await syscall("read", {streamId: ptyMaster});
+            let text = await syscall("read", {fd: ptyMaster});
 
             if (text == "") {
                 // EOF from the PTY. We have to check if it's caused by the child exiting.
@@ -190,7 +188,6 @@ async function main(args) {
                     if (e.errno != "WOULDBLOCK") {
                         throw e;
                     }
-                    debugger;
                 }
             }
 
@@ -251,7 +248,7 @@ async function main(args) {
 
         if (childPid != undefined) {
             // The child is process group leader
-            await syscall("sendSignal", {signal: "kill", pgid: childPid});
+            await syscall("sendSignalToProcessGroup", {signal: "kill", pgid: childPid});
         }
 
         if (error.name != "ProcessInterrupted") {
