@@ -399,8 +399,8 @@ class NullFile {
         // The text is discarded
     }
 
-    requestReadAt() {
-        // Will never read anything
+    requestReadAt(_charIdx, {reader}) {
+        reader({text: ""}); // EOF
     }
 
     open() {
