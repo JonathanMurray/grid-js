@@ -184,6 +184,11 @@ class WindowManager {
                 event.preventDefault();
             }
 
+            if (event.key == "o" && event.ctrlKey) {
+                // default = open file
+                event.preventDefault();
+            }
+
             if (event.key == "d" && event.ctrlKey) {
                 // default = Chrome edit bookmark
                 event.preventDefault();

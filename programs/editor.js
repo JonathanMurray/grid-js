@@ -14,15 +14,16 @@ class Editor {
         this._yOffset = 0;
         this._doc.cursorLine = 0;
 
-        this.fileName = fileName;
-
+        this._fileName = fileName;
         this._hasUnsavedChanges = false;
+
+        this._waitingForFilePicker = false;
 
         this._update();
     }
 
-    async saveToFile() {
-        const fd = await syscall("openFile", {fileName: this.fileName});
+    async _saveToFile() {
+        const fd = await syscall("openFile", {fileName: this._fileName});
         const text = this._doc.lines.join("\n");
         await syscall("write", {fd, text});
         await syscall("setFileLength", {fd, length: text.length});
@@ -31,12 +32,35 @@ class Editor {
         this._update();
     }
 
-    resize(w, h) {
+    async _openFile(fileName) {
+        assert(fileName != null);
+        let lines;
+        try {
+            const fd = await syscall("openFile", {fileName});
+            const text = await syscall("read", {fd});
+            await syscall("close", {fd});
+            lines = text.split(/\n|\r\n/);
+        } catch (e) {
+            console.warn("Couldn't open file: ", e);
+            return;
+        }
+        this._fileName = fileName;
+        this._hasUnsavedChanges = false;
+        this._doc = new DocumentWithCursor(lines);
+        this._update();
+    }
 
+    resize(w, h) {
         this._canvas.width = w;
         this._canvas.height = h;
-        this._gridSize = [Math.floor(w / this._cellSize[0]), Math.floor(h / this._cellSize[1])];
+        this._updateGridSize();
+    }
 
+    _updateGridSize() {
+        this._gridSize = [
+            Math.floor(this._canvas.width / this._cellSize[0]), 
+            Math.floor(this._canvas.height / this._cellSize[1])
+        ];
         this._update();
     }
 
@@ -45,10 +69,10 @@ class Editor {
         Grid.fillCell(this._ctx, this._cellSize, cell);
     }
 
-    _char(char, cell) {
+    _char(char, cell, options) {
         assert(char.length == 1);
         this._ctx.fillStyle = "black";
-        Grid.characterCell(this._ctx, this._cellSize, cell, char, {});
+        Grid.characterCell(this._ctx, this._cellSize, cell, char, options);
     }
 
     _update() {
@@ -71,22 +95,26 @@ class Editor {
             this._yOffset = cursorRow - showDocRows + 1;
         }
         
-        const statusLines = [`${this.fileName} ${this._hasUnsavedChanges ? "~" : ""}`, ""];
+        const statusLines = [`=${this._fileName}= ${this._hasUnsavedChanges ? "*" : ""}`, ""];
         const statusMargin = leftMargin + 1;
         for (let y = 0; y < topMargin; y++) {
             for (let x = 0; x < this._gridSize[0]; x++) {
-                if (x > leftMargin - 1) {
-                    this._background("lightgreen", [x, y]);
-                }
+                this._background("lightgreen", [x, y]);
             }
             for (let x = 0; x < this._gridSize[0]; x++) {
                 if (x < statusLines[y].length) {
-                    this._char(statusLines[y][x], [statusMargin + x, y]);
+                    this._char(statusLines[y][x], [statusMargin + x, y], {bold:true});
                 } 
             }
         }
         
-        this._background("salmon", [cursorCol + leftMargin, topMargin + cursorRow - this._yOffset]);
+        const xCursor = leftMargin + cursorCol;
+        const yCursor = topMargin + cursorRow - this._yOffset;
+
+        for (let x = leftMargin; x < this._gridSize[0]; x++) {
+            const color = x === xCursor ? "salmon" : "#EEE";
+            this._background(color, [x, yCursor]);
+        }
 
         let gridY = topMargin;
         let lineNumber = 0;
@@ -98,7 +126,8 @@ class Editor {
 
             if (docY >= this._yOffset) {
                 for (let i = 0; i < leftMargin; i++) {
-                    this._background("lightblue", [i, gridY]);
+                    const color = gridY === yCursor ? "#CCF" : "#AAF";
+                    this._background(color, [i, gridY]);
                 }
                 let numberString;
                 if (lineBeginnings.includes(docY)) {
@@ -121,52 +150,117 @@ class Editor {
         }
     }
 
-    handleEvent(name, event) {
-        if (name == "keydown") {
-            const key = event.key;
-            if (key == "s" && event.ctrlKey) {
-                this.saveToFile();
-            } else if (key == "Backspace") {
-                this._hasUnsavedChanges = this._doc.erase();
-            } else if (key == "Enter") {
-                this._doc.addLinefeed();
-                this._hasUnsavedChanges = true;
-            } else if (key == "ArrowLeft") {
-                this._doc.cursorLeft();
-            } else if (key == "ArrowRight") {
-                this._doc.cursorRight();
-            } else if (key == "ArrowUp") {
-                this._doc.cursorUp();
-            } else if (key == "ArrowDown") {
-                this._doc.cursorDown();
-            } else if (key == "Home") {
-                this._doc.cursorStartOfLine();
-            } else if (key == "End") {
-                this._doc.cursorEndOfLine();
-            } else if (key == "PageDown") {
-                for (let i = 0; i < 10; i++) {
-                    this._doc.cursorDown();
-                }
-            } else if (key == "PageUp") {
-                for (let i = 0; i < 10; i++) {
-                    this._doc.cursorUp();
-                }
-            } else if (key.length == 1) {
-                this._doc.insert(key);
-                this._hasUnsavedChanges = true;
-            } else {
-                console.log(key);
-            }
-
-            this._update();
+    async ondropdown(itemId) {
+        if (this._waitingForFilePicker) {
+            console.warn("Waiting for file picker");
+            return;
         }
+        
+        if (itemId == "SAVE") {
+            this._saveToFile();
+        } else if (itemId == "OPEN") {
+            this._pickFileToOpen();
+        } else {
+            console.log("TODO: handle dropdown: ", itemId);
+        } 
+    }
+
+    async onbutton(buttonId) {
+        // TODO mind the floats and blurry text (?)
+        if (buttonId == "ZOOM_IN") {
+            const factor = 1.1;
+            this._cellSize[0] *= factor;
+            this._cellSize[1] *= factor; 
+            this._updateGridSize();
+        } else if (buttonId == "ZOOM_OUT") {
+            const factor = 0.9;
+            this._cellSize[0] *= factor;
+            this._cellSize[1] *= factor; 
+            this._updateGridSize();
+        } else {
+            console.log("TODO: handle button: ", buttonId);
+        } 
+    }
+
+    async _pickFileToOpen() {
+        this._waitingForFilePicker = true;
+        const pid = await syscall("spawn", {program: "filepicker"});
+        console.log("WAITING");
+        const exitValue = await syscall("waitForExit", {pid});
+        this._waitingForFilePicker = false;
+        if ("picked" in exitValue) {
+            console.log("PICKED", exitValue.picked);
+            await this._openFile(exitValue.picked);
+        } else {
+            console.log("DIdn't pick!"); //TODO
+        }
+    }
+
+    async onkeydown(event) {
+        if (this._waitingForFilePicker) {
+            console.warn("Waiting for file picker");
+            return;
+        }
+
+        const key = event.key;
+        if (event.ctrlKey && event.key == "c") { 
+            await writeln("Editor shutting down");
+            await syscall("exit");
+        } else if (key == "s" && event.ctrlKey) {
+            this._saveToFile();
+        } else if (key == "o" && event.ctrlKey) {
+            this._pickFileToOpen();
+        } else if (key == "Backspace") {
+            this._hasUnsavedChanges = this._doc.erase();
+        } else if (key == "Enter") {
+            this._doc.addLinefeed();
+            this._hasUnsavedChanges = true;
+        } else if (key == "ArrowLeft") {
+            this._doc.cursorLeft();
+        } else if (key == "ArrowRight") {
+            this._doc.cursorRight();
+        } else if (key == "ArrowUp") {
+            this._doc.cursorUp();
+        } else if (key == "ArrowDown") {
+            this._doc.cursorDown();
+        } else if (key == "Home") {
+            this._doc.cursorStartOfLine();
+        } else if (key == "End") {
+            this._doc.cursorEndOfLine();
+        } else if (key == "PageDown") {
+            for (let i = 0; i < 10; i++) {
+                this._doc.cursorDown();
+            }
+        } else if (key == "PageUp") {
+            for (let i = 0; i < 10; i++) {
+                this._doc.cursorUp();
+            }
+        } else if (key.length == 1) {
+            this._doc.insert(key);
+            this._hasUnsavedChanges = true;
+        } else {
+            console.log(key);
+        }
+
+        this._update();
+    }
+
+    onwheel(event) {
+        const speed = 5;
+        if (event.deltaY < 0) {
+            for (let i = 0; i < speed; i++) {
+                this._doc.cursorUp();
+            }
+        } else {
+            for (let i = 0; i < speed; i++) {
+                this._doc.cursorDown();
+            }
+        }
+        this._update();
     }
 }
 
 async function main(args) {
-
-    let resolvePromise;
-    let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
     let fileName;
     if (args.length > 0) {
@@ -175,28 +269,45 @@ async function main(args) {
         fileName = "tmp";
     }
 
-    const size = [800, 600];
-    const window = await stdlib.createWindow("Editing: " + fileName, size);
+    const menubarItems = [
+        {
+            text: "File",
+            dropdown: [
+                {
+                    text: "Save",
+                    id: "SAVE"
+                },
+                {
+                    text: "Open...",
+                    id: "OPEN"
+                },
+            ]
+        },
+        {
+            text: "Font -",
+            id: "ZOOM_OUT",
+        },
+        {
+            text: "Font +",
+            id: "ZOOM_IN",
+        },
+    ]
+
+    const window = await stdlib.createWindow("Editor", [600, 400], {menubarItems});
 
     const fd = await syscall("openFile", {fileName, createIfNecessary: true});
     const text = await syscall("read", {fd});
-    const lines = text.split("\n");
     await syscall("close", {fd});
+    const lines = text.split(/\n|\r\n/);
 
     const app = new Editor(window.canvas, fileName, lines);
 
-    window.onkeydown = (event) => {
-        if (event.ctrlKey && event.key == "c") { 
-            writeln("Editor shutting down").finally(resolvePromise);
-        } else {
-            app.handleEvent("keydown", event);
-        }
-    };
+    window.ondropdown = ({itemId}) => app.ondropdown(itemId);
+    window.onkeydown = (event) => app.onkeydown(event);
+    window.onresize = (event) =>  app.resize(event.width, event.height);
+    window.onwheel = (event) => app.onwheel(event);
+    window.onbutton = ({buttonId}) => app.onbutton(buttonId);
 
-    window.onresize = (event) => {
-        app.resize(event.width, event.height);
-    }
-
-    return programDonePromise;
+    return new Promise((r) => {});
 }
 

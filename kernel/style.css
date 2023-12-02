@@ -137,16 +137,25 @@
     display: none;
     position: absolute;
     background: white;
+
+    border: 1px solid darkgray;
+    border-radius: 3px;
 }
 .dropdown.active {
-    display: block;
+    display: block; 
 }
 .dropdown-item {
+    padding-left: 13px;
+    padding-right: 13px;
+    height: 25px;
+    margin: 2px;
+    
     background: white;
-    border: 1px solid black;
-    padding-left: 10px;
-    padding-right: 10px;
-
+    display: flex;
+    justify-content: center;
+    align-content: center;
+    flex-direction: column;
+    border-radius: 3px;
     font-size: 14px;
     font-weight: normal; 
     cursor: pointer;

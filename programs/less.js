@@ -83,8 +83,6 @@ async function run(contentFd) {
         await initGrid();
     }
 
-
-
     async function render() {
         let output = ANSI_ERASE_ENTIRE_SCREEN;
         let lineNumber = 1;

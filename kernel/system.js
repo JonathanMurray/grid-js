@@ -35,6 +35,7 @@ class System {
             "diagnose",
             "echo",
             "editor", 
+            "filepicker",
             "inspect",
             "json",
             "kill",
@@ -80,6 +81,8 @@ class System {
 
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
         system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
+
+        //system._spawnProcess({programName: "editor", args: ["less"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }
@@ -128,7 +131,7 @@ class System {
         //console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
         const self = this;
         return proc.waitForOtherToExit(procToWaitFor).then((exitValue) => {
-            //console.log(`${pid} successfully waited for ${pidToWaitFor} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
+            console.log(`${pid} successfully waited for ${pidToWaitFor} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
             delete self._processes[pidToWaitFor];
             //console.log("After deletion; processes: ", self.processes);
 

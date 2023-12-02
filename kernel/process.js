@@ -153,6 +153,7 @@ class Process {
     }
 
     onExit(exitValue) {
+        assert(exitValue != null);
         console.log(this.pid, "onExit", exitValue);
         this.exitValue = exitValue;
 
