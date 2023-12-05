@@ -1,7 +1,18 @@
 // This file runs a process, sandboxed in a web worker
 // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers
 
-importScripts("../util.js", "../lib/stdlib.js", "../lib/document-cursor.js", "../lib/terminal-grid.js", "../lib/grid.js");
+let dependencies = [
+    "util.js", 
+    "lib/document-cursor.js", 
+    "lib/grid.js",
+    "lib/gui.js",
+    "lib/stdlib.js", 
+    "lib/terminal-grid.js", 
+];
+dependencies = dependencies.map(s => `../${s}`);
+
+importScripts(...dependencies);
+
 const {write, writeln, writeError, read, readln, log} = stdlib;
 
 

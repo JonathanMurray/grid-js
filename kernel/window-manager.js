@@ -512,6 +512,10 @@ class WindowManager {
             event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
             this.sendInputToProcess(win, {name: "click", event});
         });
+        canvas.addEventListener("mousedown", (event) => {
+            event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
+            this.sendInputToProcess(win, {name: "mousedown", event});
+        });
         canvas.addEventListener(
             "wheel", 
             (event) => {

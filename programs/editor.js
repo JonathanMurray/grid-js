@@ -184,7 +184,7 @@ class Editor {
 
     async _pickFileToOpen() {
         this._waitingForFilePicker = true;
-        const pid = await syscall("spawn", {program: "filepicker"});
+        const pid = await syscall("spawn", {program: "filepicker2"});
         console.log("WAITING");
         const exitValue = await syscall("waitForExit", {pid});
         this._waitingForFilePicker = false;
