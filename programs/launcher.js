@@ -29,7 +29,7 @@ async function main(args) {
         doc.lines[introLines.length + numPrograms + 1] = programs[program];
     }
 
-    window.onkeydown = (event) => {
+    window.addEventListener("keydown", (event) => {
         const key = event.key;
         if (key == "ArrowDown" || key == "s") {
             moveCursor(1);
@@ -46,7 +46,7 @@ async function main(args) {
         if (event.ctrlKey && key == "c") {
             syscall("exit");
         }
-    }
+    });
 
     function draw() {
         ctx.fillStyle = "white";

@@ -273,25 +273,25 @@ async function main(args) {
     const window = await stdlib.createWindow("Sudoku", [300, 300], {resizable: false});
     const app = new Sudoku(window.canvas);
 
-    window.onkeydown = (event) => {
+    window.addEventListener("keydown", (event) => {
         if (event.ctrlKey && event.key == "c") { 
             writeln("Sudoku shutting down").finally(resolvePromise);
         } else {
             app.handleEvent("keydown", event);
         }
-    };
+    });
 
-    window.onclick = (event) => {
+    window.addEventListener("click", (event) => {
         app.handleEvent("click", event);
-    };
+    });
     
-    window.onmousemove = (event) => {
+    window.addEventListener("mousemove", (event) => {
         app.handleEvent("mousemove", event);
-    };
+    });
 
-    window.onmouseout = (event) => {
+    window.addEventListener("mouseout",  (event) => {
         app.handleEvent("mouseout", event);
-    };
+    });
 
     return programDonePromise;
 }

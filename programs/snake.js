@@ -219,26 +219,26 @@ async function main(args) {
     const window = await stdlib.createWindow("Snake", [324, 324], {menubarItems});
     const snake = new Snake(window.canvas);
 
-    window.onbutton = ({buttonId}) => {
+    window.addEventListener("menubarButtonWasClicked", ({buttonId}) => {
         snake.restart();
-    }
+    });
 
-    window.onkeydown = (event) => {
+    window.addEventListener("keydown", (event) => {
         if (event.ctrlKey && event.key == "c") { 
             writeln("Snake shutting down").finally(resolvePromise);
         } else {
             snake.handleKeydown(event);
         }
-    };
+    });
 
-    window.onresize = (event) => {
+    window.addEventListener("windowWasResized", (event) => {
         console.log("TODO SNAKE RESIZE: ", event);
         const shortestSide = Math.min(event.width, event.height);
         snake.resize(event.width, event.height);
         //window.canvas.width = shortestSide;
        // window.canvas.height = shortestSide;
         //snake.grid.draw(this._ctx);
-    }
+    });
 
     snake.run();
 

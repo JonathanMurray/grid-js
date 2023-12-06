@@ -170,6 +170,10 @@ class WindowManager {
                 this.sendInputToProcess(window, {name: "windowWasResized", event: resizeEvent});
                 this.ongoingResize = null;
             }
+
+            if (this.focused != null && "window" in this.focused) {
+                this.sendInputToProcess(this.focused.window, {name: "mouseup", event: null});
+            }
         });
 
         window.addEventListener("keydown", (event) => {
@@ -516,6 +520,7 @@ class WindowManager {
             event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
             this.sendInputToProcess(win, {name: "mousedown", event});
         });
+      
         canvas.addEventListener(
             "wheel", 
             (event) => {

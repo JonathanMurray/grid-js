@@ -5,6 +5,7 @@ async function main(args) {
     let fileNames = await syscall("listFiles");
 
     const {
+        GuiManager,
         Direction,
         AlignChildren,
         SelectionList,
@@ -12,7 +13,6 @@ async function main(args) {
         TextInput,
         Button,
         Container,
-        getEvents
     } = gui;
 
     const window = await stdlib.createWindow("GUI test", [600, 320], {resizable: false});
@@ -27,7 +27,6 @@ async function main(args) {
     const errorElement = new TextContainer(ctx, "", {color: "#F99"});
 
     const root = new Container({maxSize: [canvas.width, canvas.height], bg: "#444", direction: Direction.VERTICAL, padding: 5, stretch: true});
-
 
     const selectionList = new SelectionList(
         new Container({direction: Direction.VERTICAL, stretch: true, bg: "#555", maxSize: [999, 195], verticalScroll: true}),
@@ -54,58 +53,30 @@ async function main(args) {
         .addChild(
             new Container({direction: Direction.HORIZONTAL, padding: 10, stretch: true, align: AlignChildren.END})
                 .addChild(new Container({padding: [20, 5]}).addChild(errorElement))
-                .addChild(new Button(ctx, "Open", {onClick: "OPEN"}))
-                .addChild(new Button(ctx, "Cancel", {onClick: "CANCEL"}))
+                .addChild(new Button(ctx, "Open", {onClick: tryOpen}))
+                .addChild(new Button(ctx, "Cancel", {onClick: onClickCancel}))
         );
 
-    await ui({pos: [0, 0]});
-
-    async function ui(mouse) {
-        ctx.fillStyle = "lightgray";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.resetTransform();
-        root.draw(ctx, [canvas.width, canvas.height], mouse);
-
-        let redraw = false;
-        for (const event of getEvents()) {
-            if (event == "OPEN") {
-                tryOpen();
-                redraw = true;
-            } else {
-                await syscall("exit");
-            }
-        }
-
-        if (redraw) {
-            ui();
-        }
+    async function onClickCancel() {
+        await syscall("exit");
     }
 
     async function tryOpen() {
         if (fileNames.includes(input)) {
             await syscall("exit", {picked: input});
         }
-
         errorElement.setText("No such file!");
     }
 
     function updateInputElement() {
         inputElement.setText(input + "_");
+        
+        errorElement.setText("");
     }
 
-    let mousePos = null;
+    const guiManager = new GuiManager(window, ctx, root);
 
-    window.onmousemove = (event) => {
-        mousePos = [event.x, event.y];
-        ui({pos: mousePos});
-    }
-
-    window.onmousedown = (event) => {
-        ui({pos: mousePos, changedToDown: true});
-    }
-
-    window.ondropdown = ({itemId}) => {};
-    window.onkeydown = async function(event) {
+    window.addEventListener("keydown", async function(event) {
         const key = event.key;
         errorElement.setText("");
         if (key == "Backspace") {
@@ -121,15 +92,8 @@ async function main(args) {
         }
         
         updateInputElement();
-        await ui({pos: mousePos});
-    };
-    window.onwheel = async function(event) {
-        await ui({pos: mousePos, scrollDelta: event.deltaY});
-        await ui({pos: mousePos});
-    };
-
-    window.onresize = (event) => {};
-    window.onbutton = ({buttonId}) => {};
+        guiManager.redraw();
+    });
 
     return new Promise((r) => {});
 }

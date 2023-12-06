@@ -5,6 +5,7 @@ async function main(args) {
     const window = await stdlib.createWindow("Launcher", [450, 250], {resizable: false});
 
     const {
+        GuiManager,
         Direction,
         AlignChildren,
         SelectionList,
@@ -12,7 +13,6 @@ async function main(args) {
         TextInput,
         Button,
         Container,
-        getEvents
     } = gui;
 
     
@@ -58,9 +58,13 @@ async function main(args) {
     .addChild(new Container().addChild(descriptionElement))
         .addChild(
             new Container({direction: Direction.HORIZONTAL, padding: 10, stretch: true, align: AlignChildren.END})
-                .addChild(new Button(ctx, "Launch", {onClick: "LAUNCH"}))
-                .addChild(new Button(ctx, "Cancel", {onClick: "CANCEL"}))
+                .addChild(new Button(ctx, "Launch", {onClick: maybeLaunch}))
+                .addChild(new Button(ctx, "Cancel", {onClick: cancel}))
         );
+
+    async function cancel() {
+        await syscall("exit");
+    }
 
     async function maybeLaunch() {
         if (picked != null) {
@@ -69,41 +73,13 @@ async function main(args) {
         }
     }
 
-    await ui({pos: [0, 0]});
+    const guiManager = new GuiManager(window, ctx, root);
 
-    async function ui(mouse) {
-        ctx.fillStyle = "lightgray";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.resetTransform();
-        root.draw(ctx, [canvas.width, canvas.height], mouse);
-
-        let redraw = false;
-        for (const event of getEvents()) {
-            if (event == "LAUNCH") {
-                await maybeLaunch();
-            } else {
-                await syscall("exit");
-            }
-        }
-
-        if (redraw) {
-            ui();
-        }
-    }
-
-    let mousePos = null;
-
-    window.onmousemove = (event) => {
-        mousePos = [event.x, event.y];
-        ui({pos: mousePos});
-    }
-    window.onmousedown = (event) => {
-        ui({pos: mousePos, changedToDown: true});
-    }
     window.onkeydown = async function(event) {
         const key = event.key;
         if (key == "Enter") {
             await maybeLaunch();
+            guiManager.redraw();
         } 
     };
 

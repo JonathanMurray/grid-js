@@ -85,34 +85,34 @@ async function main(args) {
             await recomputeTerminalSize();
         }
 
-        window.onresize = (event) => {
+        window.addEventListener("windowWasResized", async (event) => {
             canvas.width = event.width;
             canvas.height = event.height;
 
-            recomputeTerminalSize()
-        }
+            await recomputeTerminalSize()
+        });
 
-        window.onclose = async (event) => {
+        window.addEventListener("closeWasClicked", async (event) => {
             await writeln("Terminal shutting down. (Window was closed.)");
             await syscall("exit");
-        }
+        });
 
-        window.onwheel = (event) => {
+        window.addEventListener("wheel", (event) => {
             const updated = terminalGrid.scroll(event.deltaY);
             if (updated) {
                 draw();
             }
-        }
+        });
 
-        window.onbutton = ({buttonId}) => {
+        window.addEventListener("menubarButtonWasClicked", ({buttonId}) => {
             if (buttonId == "ZOOM_IN") {
                 changeFontSize(1.11);
             } else {
                 assert(buttonId == "ZOOM_OUT");
                 changeFontSize(0.9);
             }
-        }
-        window.ondropdown = ({itemId}) => {
+        });
+        window.addEventListener("menubarDropdownItemWasClicked", ({itemId}) => {
             if (itemId == "DARK") {
                 terminalGrid.setDefaultBackground("black");
                 terminalGrid.setDefaultForeground("white");
@@ -126,9 +126,9 @@ async function main(args) {
                 assert(false);
             }
             draw();
-        }
+        });
 
-        window.onkeydown = (event) => {
+        window.addEventListener("keydown", (event) => {
 
             if (hasChildExited) {
                 return;
@@ -173,7 +173,7 @@ async function main(args) {
             if (sequence != null) {
                 write(sequence, ptyMaster);
             }
-        };
+        });
     
         while (true) {
             let text = await syscall("read", {fd: ptyMaster});

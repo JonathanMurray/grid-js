@@ -302,11 +302,11 @@ async function main(args) {
 
     const app = new Editor(window.canvas, fileName, lines);
 
-    window.ondropdown = ({itemId}) => app.ondropdown(itemId);
-    window.onkeydown = (event) => app.onkeydown(event);
-    window.onresize = (event) =>  app.resize(event.width, event.height);
-    window.onwheel = (event) => app.onwheel(event);
-    window.onbutton = ({buttonId}) => app.onbutton(buttonId);
+    window.addEventListener("menubarDropdownItemWasClicked", ({itemId}) => app.ondropdown(itemId));
+    window.addEventListener("keydown", (event) => app.onkeydown(event));
+    window.addEventListener("windowWasResized", (event) =>  app.resize(event.width, event.height));
+    window.addEventListener("wheel", (event) => app.onwheel(event));
+    window.addEventListener("menubarButtonWasClicked", ({buttonId}) => app.onbutton(buttonId));
 
     return new Promise((r) => {});
 }

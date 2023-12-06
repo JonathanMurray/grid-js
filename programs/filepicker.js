@@ -11,7 +11,7 @@ async function main(args) {
     const introLine = "Input filename, and press Enter.";
     const input = new TextWithCursor();
 
-    window.onkeydown = async function (event) {
+    window.addEventListener("keydown", async function (event) {
         const key = event.key;
         if (key == "ArrowRight") {
             input.moveRight();
@@ -27,7 +27,7 @@ async function main(args) {
             input.insert(key);
         }
         draw();
-    }
+    });
 
     function draw() {
         ctx.fillStyle = "white";

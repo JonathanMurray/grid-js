@@ -79,11 +79,5 @@ async function main(args) {
     
     const app = new Plot(window.canvas, func);
 
-    window.onkeydown = function(event) {
-        if (event.ctrlKey && event.key == "c") { 
-            writeln("Plotter shutting down").finally(resolvePromise);
-        }
-    };
-
     return programDonePromise;
 }
