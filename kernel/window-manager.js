@@ -14,7 +14,7 @@ const CURSOR_RESIZE_CLASS_NAMES = {
 
 const WIN_MIN_SIZE = [200, 100];
 
-const PROGRAM_LAUNCHER = "launcher";
+const PROGRAM_LAUNCHER = "launcher2";
 
 const CANVAS_SCALE = window.devicePixelRatio; // Change to 1 on retina screens to see blurry canvas.
 
