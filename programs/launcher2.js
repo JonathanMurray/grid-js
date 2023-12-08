@@ -2,10 +2,11 @@
 
 async function main(args) {
 
-    const window = await stdlib.createWindow("Launcher", [450, 250], {resizable: false});
+    const window = await stdlib.createWindow("Launcher", [450, 280], {resizable: false});
 
     const {
-        GuiManager,
+        attachUiToWindow,
+        redraw,
         Direction,
         AlignChildren,
         SelectionList,
@@ -21,6 +22,7 @@ async function main(args) {
         "snake": "Eat the fruit and don't collide!",
         "sudoku": "Solve the puzzle!",
         "editor": "Edit text files.",
+        "demo": "Showcases GUI capabilities",
     };
     const fileNames = Object.keys(descriptions);
 
@@ -34,7 +36,7 @@ async function main(args) {
     const root = new Container({maxSize: [canvas.width, canvas.height], bg: "#444", direction: Direction.VERTICAL, padding: [10, 5], stretch: true});
 
     const selectionList = new SelectionList(
-        new Container({direction: Direction.VERTICAL, stretch: true, bg: "#555", maxSize: [999, 195], verticalScroll: true}),
+        Number.MAX_SAFE_INTEGER,
         (itemIdx) => {
             picked = fileNames[itemIdx];
             titleElement.setText(picked);
@@ -73,15 +75,15 @@ async function main(args) {
         }
     }
 
-    const guiManager = new GuiManager(window, ctx, root);
+    attachUiToWindow(root, window);
 
-    window.onkeydown = async function(event) {
+    window.addEventListener("keydown", async function(event) {
         const key = event.key;
         if (key == "Enter") {
             await maybeLaunch();
-            guiManager.redraw();
+            redraw();
         } 
-    };
+    });
 
     return new Promise((r) => {});
 }

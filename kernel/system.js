@@ -33,6 +33,7 @@ class System {
             "countdown",
             "crash",
             "diagnose",
+            "demo",
             "echo",
             "editor", 
             "filepicker",
@@ -84,7 +85,7 @@ class System {
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
         //system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
 
-        system._spawnProcess({programName: "terminal", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }

@@ -11,6 +11,7 @@
     height: 768; 
 
     background-color: lightsteelblue; 
+    font-family: monospace; 
 }
 
 #dock {
@@ -32,7 +33,6 @@
 
     user-select: none; /* prevent cursor-change and ability to copy-paste text */
     text-align: center;
-    font-family: monospace; 
     font-size: 16px;
     font-weight: bold; 
     color: whitesmoke;
@@ -52,7 +52,6 @@
     overflow: hidden;
     user-select: none; /* prevent cursor-change and ability to copy-paste text */
     text-align: center;
-    font-family: monospace; 
     font-size: 16px; 
     cursor: pointer;
 }
@@ -70,10 +69,10 @@
 
     background: lightgray; 
     user-select: none; /* prevent cursor-change and ability to copy-paste text */
-    border: 2px solid lightgray;
+    /*border: 1px solid lightgray;*/
 }
 .program-window.focused {
-    outline: solid rgb(64, 109, 207) 1px;
+    outline: solid rgb(100, 150, 207) 1px;
 }
 
 .titlebar {
@@ -86,13 +85,14 @@
     border-bottom: 2px solid lightgray;
     padding-left: 6px;
     padding-top: 3px;
-    font-family: monospace; 
     font-weight: bold; 
     font-size: 18px; 
     height: 25px;
+    color: #777;
 }
 .program-window.focused .titlebar {
     background-color: rgb(55, 202, 239);
+    color: #000;
 }
 
 .titlebar-button {
@@ -104,18 +104,22 @@
     right: 2px;
 
     color: white;
-    border: 1px solid lightgray;
+    border: 1px solid #99A;
+    border-radius: 2px;
     cursor: pointer;
     text-align: center;
     vertical-align: middle;
 }
 .titlebar-button:hover {
-    color: red;
+    background: #F55;
 }
 
 .menubar {
     background-color: rgb(240, 240, 240);
     padding: 1px;
+}
+.menubar:empty {
+    padding: 0px;
 }
 .menubar-button {
     padding-left: 5px;
@@ -126,6 +130,9 @@
     color: black;
     border: 1px solid transparent;
     cursor: pointer;
+}
+.program-window:not(.focused) .menubar-button {
+    color: gray;
 }
 .menubar-button:hover {
     border: 1px solid darkgray;

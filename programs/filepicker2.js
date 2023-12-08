@@ -5,7 +5,8 @@ async function main(args) {
     let fileNames = await syscall("listFiles");
 
     const {
-        GuiManager,
+        attachUiToWindow,
+        redraw,
         Direction,
         AlignChildren,
         SelectionList,
@@ -15,7 +16,7 @@ async function main(args) {
         Container,
     } = gui;
 
-    const window = await stdlib.createWindow("GUI test", [600, 320], {resizable: false});
+    const window = await stdlib.createWindow("File picker", [600, 320], {resizable: false});
 
     const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
@@ -29,7 +30,7 @@ async function main(args) {
     const root = new Container({maxSize: [canvas.width, canvas.height], bg: "#444", direction: Direction.VERTICAL, padding: 5, stretch: true});
 
     const selectionList = new SelectionList(
-        new Container({direction: Direction.VERTICAL, stretch: true, bg: "#555", maxSize: [999, 195], verticalScroll: true}),
+        195,
         (itemIdx) => {
             input = fileNames[itemIdx];
             updateInputElement();
@@ -52,7 +53,7 @@ async function main(args) {
         )
         .addChild(
             new Container({direction: Direction.HORIZONTAL, padding: 10, stretch: true, align: AlignChildren.END})
-                .addChild(new Container({padding: [20, 5]}).addChild(errorElement))
+                .addChild(new Container({padding: [10, 5]}).addChild(errorElement))
                 .addChild(new Button(ctx, "Open", {onClick: tryOpen}))
                 .addChild(new Button(ctx, "Cancel", {onClick: onClickCancel}))
         );
@@ -70,11 +71,10 @@ async function main(args) {
 
     function updateInputElement() {
         inputElement.setText(input + "_");
-        
         errorElement.setText("");
     }
 
-    const guiManager = new GuiManager(window, ctx, root);
+    attachUiToWindow(root, window);
 
     window.addEventListener("keydown", async function(event) {
         const key = event.key;
@@ -85,14 +85,15 @@ async function main(args) {
             } else {
                 input = input.slice(0, input.length - 1);
             }
+            updateInputElement();
         } else if (key == "Enter") {
             await tryOpen();
         } else if (key.length == 1) {
             input += key;
+            updateInputElement();
         }
-        
-        updateInputElement();
-        guiManager.redraw();
+
+        redraw();
     });
 
     return new Promise((r) => {});

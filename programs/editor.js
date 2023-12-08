@@ -3,7 +3,7 @@
 class Editor {
 
     constructor(canvas, fileName, lines) {
-        this._cellSize = [9, 16];
+        this._cellSize = [10, 20];
         this._gridSize = [Math.floor(canvas.width / this._cellSize[0]), Math.floor(canvas.height / this._cellSize[1])];
 
         this._canvas = canvas;
