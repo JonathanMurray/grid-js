@@ -49,7 +49,8 @@ async function main(args) {
             const status = proc.exitValue == null ? "running" : proc.exitValue;
             getElementById("status").setText(`status: ${status}`);
             getElementById("sid").setText(`sid: ${proc.sid}`);
-            getElementById("syscalls").setText(`syscalls: ${proc.syscallCount}`);
+            getElementById("syscall").setText(`ongoing: ${proc.ongoingSyscall}`);
+            getElementById("syscalls").setText(`#syscalls: ${proc.syscallCount}`);
             getElementById("fds").setText(`fds: ${JSON.stringify(proc.fds)}`);
     }
 
@@ -63,21 +64,12 @@ async function main(args) {
             new Container({bg: "red", padding: 5, expand: Expand.YES})
                 .addChild(
                     new Container({bg: "#999", padding: [10, 10],  expand: Expand.YES, direction: Direction.VERTICAL})
-                        .addChild(
-                            new TextContainer(ctx, "[name]", {id: "programName"})
-                        )
-                        .addChild(
-                            new TextContainer(ctx, "[status]", {id: "status"})
-                        )
-                        .addChild(
-                            new TextContainer(ctx, "[sid]", {id: "sid"})
-                        )
-                        .addChild(
-                            new TextContainer(ctx, "[syscalls]", {id: "syscalls"})
-                        )
-                        .addChild(
-                            new TextContainer(ctx, "[fds]", {id: "fds"})
-                        )
+                        .addChild(new TextContainer(ctx, "[name]", {id: "programName"}))
+                        .addChild(new TextContainer(ctx, "[status]", {id: "status"}))
+                        .addChild(new TextContainer(ctx, "[sid]", {id: "sid"}))
+                        .addChild(new TextContainer(ctx, "[syscall]", {id: "syscall"}))
+                        .addChild(new TextContainer(ctx, "[syscalls]", {id: "syscalls"}))
+                        .addChild(new TextContainer(ctx, "[fds]", {id: "fds"}))
                      
                 )
         );

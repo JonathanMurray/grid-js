@@ -36,7 +36,11 @@ class Process {
         this.syscallCount = 0;
 
         this._nextPromiseId = 1;
-        this._syscallHandles = {};
+        this._ongoingSyscalls = {};
+    }
+
+    getOngoingSyscall() {
+        return Object.values(this._ongoingSyscalls).map(x => x.name).join(", ");
     }
 
     receiveInterruptSignal() {
@@ -44,10 +48,10 @@ class Process {
         if (behaviour == SignalBehaviour.EXIT) {
             return true;
         } else if (behaviour == SignalBehaviour.HANDLE) {
-            console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this._syscallHandles)}`)
+            console.log(`[${this.pid}] Handling interrupt signal. Ongoing syscall promises=${JSON.stringify(this._ongoingSyscalls)}`)
             // Any ongoing syscalls will throw an error that can be
             // caught in the application code.
-            for (let id of Object.keys(this._syscallHandles)) {
+            for (let id of Object.keys(this._ongoingSyscalls)) {
                 this._rejectPromise(id, {name: "ProcessInterrupted", message: "interrupted"});
             }
         } else if (behaviour == SignalBehaviour.IGNORE) {
@@ -60,7 +64,7 @@ class Process {
         this.worker.postMessage({"terminalResizeSignal": null});;
     }
 
-    _promise() {
+    _syscallPromise(name) {
         let resolver;
         let rejector;
         const promise = new Promise((resolve, reject) => {
@@ -68,19 +72,19 @@ class Process {
             rejector = reject;
         });
         const promiseId = this._nextPromiseId ++;
-        this._syscallHandles[promiseId] = {resolve: resolver, reject: rejector};
+        this._ongoingSyscalls[promiseId] = {resolve: resolver, reject: rejector, name};
         return {promise, promiseId};
     }
 
     _rejectPromise(id, error) {
-        this._syscallHandles[id].reject(error);
-        delete this._syscallHandles[id];
+        this._ongoingSyscalls[id].reject(error);
+        delete this._ongoingSyscalls[id];
     }
 
     _resolvePromise(id, result) {
-        if (id in this._syscallHandles) {
-            this._syscallHandles[id].resolve(result);
-            delete this._syscallHandles[id];
+        if (id in this._ongoingSyscalls) {
+            this._ongoingSyscalls[id].resolve(result);
+            delete this._ongoingSyscalls[id];
             return true;
         }
         // Promise was not resolved. It had likely been rejected already.
@@ -92,7 +96,7 @@ class Process {
         if (fileDescriptor == undefined) {
             throw new SysError("no such fd");
         }
-        const {promise, promiseId} = this._promise();
+        const {promise, promiseId} = this._syscallPromise("write");
         const self = this;
         fileDescriptor.requestWrite((error) => {
             if (error != null) {
@@ -115,7 +119,7 @@ class Process {
     read(fd, nonBlocking) {
         const fileDescriptor = this.fds[fd];
         assert(fileDescriptor != undefined, `No such fd: ${fd}. file descriptors: ${Object.keys(this.fds)}`)
-        const {promise, promiseId} = this._promise();
+        const {promise, promiseId} = this._syscallPromise("read");
         const reader = ({error, text}) => {
             if (error != undefined) {
                 this._rejectPromise(promiseId, error);
@@ -177,7 +181,7 @@ class Process {
     }
 
     waitForOtherToExit(otherProc) {
-        const {promise, promiseId} = this._promise();
+        const {promise, promiseId} = this._syscallPromise("wait");
         
         function resolve(exitValue) {
             //console.log(this.pid, "waitForExit was resolved: ", exitValue);
@@ -190,7 +194,7 @@ class Process {
     }
 
     sleep(millis) {
-        const {promise, promiseId} = this._promise();
+        const {promise, promiseId} = this._syscallPromise("sleep");
 
         const granularityMs = 10;
         const waitUntil = Date.now() + millis;

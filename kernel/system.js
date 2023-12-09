@@ -88,17 +88,6 @@ class System {
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
         system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
 
-
-        /*
-        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
-        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
-        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
-        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
-        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
-        system._spawnProcess({programName: "taskman", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
-        */
-        //system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
-        
         return system;
     }
 
@@ -380,6 +369,7 @@ class System {
                 exitValue: proc.exitValue, 
                 syscallCount: proc.syscallCount,
                 fds,
+                ongoingSyscall: proc.getOngoingSyscall(),
             });
         }
         return procs;
