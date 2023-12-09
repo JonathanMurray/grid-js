@@ -51,6 +51,7 @@ class System {
             "shell", 
             "snake", 
             "sudoku", 
+            "taskman",
             "terminal", 
             "test", 
             "top",
@@ -74,9 +75,11 @@ class System {
 
         const system = new System(files);
 
+        const nullStream = system._addOpenFileDescription(files["null"], FileOpenMode.READ_WRITE);
+
         function spawnFromUi(programName) {
-            const nullStream = system._addOpenFileDescription(files["null"], FileOpenMode.READ_WRITE);
-            const fds = {0: nullStream, 1: nullStream.duplicate()};
+            
+            const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
             system._spawnProcess({programName, args: [], fds, ppid: null, pgid: "START_NEW", sid: null});    
         }
 
@@ -85,8 +88,16 @@ class System {
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
         //system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
 
-        system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
 
+        system._spawnProcess({programName: "countdown", args: ["15"], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        system._spawnProcess({programName: "taskman", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        
+        //system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        
         return system;
     }
 

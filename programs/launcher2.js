@@ -14,6 +14,7 @@ async function main(args) {
         TextInput,
         Button,
         Container,
+        Expand,
     } = gui;
 
     
@@ -33,15 +34,15 @@ async function main(args) {
 
     ctx.font = "18px monospace";
 
-    const root = new Container({maxSize: [canvas.width, canvas.height], bg: "#444", direction: Direction.VERTICAL, padding: [10, 5], stretch: true});
+    const root = new Container({maxSize: [canvas.width, canvas.height], bg: "#444", direction: Direction.VERTICAL, padding: [10, 5], expand: Expand.YES});
 
     const selectionList = new SelectionList(
-        Number.MAX_SAFE_INTEGER,
         (itemIdx) => {
             picked = fileNames[itemIdx];
             titleElement.setText(picked);
             descriptionElement.setText(descriptions[picked]);
-        }
+        },
+        {expandHor: true}
     );
   
     for (const fileName of fileNames) {
@@ -52,17 +53,17 @@ async function main(args) {
     const descriptionElement = new TextContainer(ctx, "", {color: "#FFF"});
 
     root
-    .addChild(new TextContainer(ctx, "Select a program:", {font: "bold 20px monospace"}))
-    .addChild(new Container({padding: [0, 5]}))
-    .addChild(selectionList)
-    .addChild(new Container({padding: [0, 5]}))
-    .addChild(new Container().addChild(titleElement))
-    .addChild(new Container().addChild(descriptionElement))
-        .addChild(
-            new Container({direction: Direction.HORIZONTAL, padding: 10, stretch: true, align: AlignChildren.END})
-                .addChild(new Button(ctx, "Launch", {onClick: maybeLaunch}))
-                .addChild(new Button(ctx, "Cancel", {onClick: cancel}))
-        );
+        .addChild(new TextContainer(ctx, "Select a program:", {font: "bold 20px monospace"}))
+        .addChild(new Container({padding: [0, 5]}))
+        .addChild(selectionList)
+        .addChild(new Container({padding: [0, 5]}))
+        .addChild(new Container().addChild(titleElement))
+        .addChild(new Container().addChild(descriptionElement))
+            .addChild(
+                new Container({direction: Direction.HORIZONTAL, padding: 10, expand: Expand.YES, align: AlignChildren.END})
+                    .addChild(new Button(ctx, "Launch", {onClick: maybeLaunch}))
+                    .addChild(new Button(ctx, "Cancel", {onClick: cancel}))
+            );
 
     async function cancel() {
         await syscall("exit");

@@ -9,11 +9,13 @@ async function main(args) {
         redraw,
         Direction,
         AlignChildren,
+        Expand,
         SelectionList,
         TextContainer,
         TextInput,
         Button,
         Container,
+
     } = gui;
 
     const window = await stdlib.createWindow("File picker", [600, 320], {resizable: false});
@@ -27,14 +29,14 @@ async function main(args) {
     let input = "";
     const errorElement = new TextContainer(ctx, "", {color: "#F99"});
 
-    const root = new Container({maxSize: [canvas.width, canvas.height], bg: "#444", direction: Direction.VERTICAL, padding: 5, stretch: true});
+    const root = new Container({maxSize: [canvas.width, canvas.height], bg: "#444", direction: Direction.VERTICAL, padding: 5, expand: Expand.YES, });
 
     const selectionList = new SelectionList(
-        195,
         (itemIdx) => {
             input = fileNames[itemIdx];
             updateInputElement();
-        }
+        },
+        {expandHor: true, verticalScroll: true, maxHeight: 195}
     );
     root.addChild(selectionList);
 
@@ -52,7 +54,7 @@ async function main(args) {
                 .addChild(inputElement)
         )
         .addChild(
-            new Container({direction: Direction.HORIZONTAL, padding: 10, stretch: true, align: AlignChildren.END})
+            new Container({direction: Direction.HORIZONTAL, padding: 10, expand: Expand.YES, align: AlignChildren.END})
                 .addChild(new Container({padding: [10, 5]}).addChild(errorElement))
                 .addChild(new Button(ctx, "Open", {onClick: tryOpen}))
                 .addChild(new Button(ctx, "Cancel", {onClick: onClickCancel}))

@@ -124,9 +124,9 @@ class TextWithCursor {
     }
 }
 
-function assert(condition, message) {
+function assert(condition, ...message) {
     if (!condition) {
-        console.error("Assertion failed:", message);
+        console.error("Assertion failed:", ...message);
         debugger;
     }
 }
