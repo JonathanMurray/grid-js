@@ -86,16 +86,17 @@ class System {
         system._windowManager = await WindowManager.init(spawnFromUi);
 
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
-        //system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
+        system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
 
 
-        system._spawnProcess({programName: "countdown", args: ["15"], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
+        /*
+        system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
         system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
         system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
         system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
         system._spawnProcess({programName: "countdown", args: [], fds: {1: nullStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
         system._spawnProcess({programName: "taskman", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
-        
+        */
         //system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null});
         
         return system;

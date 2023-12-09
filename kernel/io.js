@@ -179,7 +179,7 @@ class PseudoTerminal {
     _createCarelessWriter(text) {
         function writer(error)  {
             if (error) {
-                assert(false, `Failed writing to PTY: ${error}`);
+                console.warn(`Failed writing to PTY: ${error}`);
             } else {
                 return text;
             }
