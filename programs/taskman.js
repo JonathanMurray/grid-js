@@ -53,29 +53,33 @@ async function main(args) {
             getElementById("sid").setText(`sid: ${proc.sid}`);
             getElementById("syscall").setText(`ongoing: ${proc.ongoingSyscall}`);
             getElementById("syscalls").setText(`#syscalls: ${proc.syscallCount}`);
-            getElementById("fds").setText(`fds: ${JSON.stringify(proc.fds)}`);
+            const rows = Object.entries(proc.fds).map(([fd, {type, name}]) => [fd, type, name]);
+            getElementById("fds").setRows(rows);
     }
 
-    const root = new Container({bg: "#AAA", maxSize: [W-20, H], expand: Expand.YES, direction: Direction.HORIZONTAL, padding: [20, 20]})
+    const root = new Container({expand: Expand.YES})
         .addChild(
-            new Container({bg: "blue", padding: 10})
-                .addChild(procTable)
-        )
-
-        .addChild(
-            new Container({bg: "red", padding: 5, expand: Expand.YES})
+            new Container({bg: "#AAA", expand: Expand.YES, direction: Direction.HORIZONTAL})
                 .addChild(
-                    new Container({bg: "#999", padding: [10, 10],  expand: Expand.YES, direction: Direction.VERTICAL})
-                        .addChild(new TextContainer(ctx, "[name]", {id: "programName"}))
-                        .addChild(new TextContainer(ctx, "[status]", {id: "status"}))
-                        .addChild(new TextContainer(ctx, "[sid]", {id: "sid"}))
-                        .addChild(new TextContainer(ctx, "[syscall]", {id: "syscall"}))
-                        .addChild(new TextContainer(ctx, "[syscalls]", {id: "syscalls"}))
-                        .addChild(new TextContainer(ctx, "[fds]", {id: "fds"}))
-                     
+                    new Container({expand: [Expand.NO, Expand.YES], padding: [5, 0], verticalScroll: true, })
+                        .addChild(procTable)
+                )
+
+                .addChild(
+                    new Container({expand: Expand.YES, verticalScroll: true, })
+                        .addChild(
+                            new Container({bg: "#999", padding: [10, 10],  expand: Expand.YES, direction: Direction.VERTICAL})
+                                .addChild(new TextContainer(ctx, "[name]", {id: "programName"}))
+                                .addChild(new TextContainer(ctx, "[status]", {id: "status"}))
+                                .addChild(new TextContainer(ctx, "[sid]", {id: "sid"}))
+                                .addChild(new TextContainer(ctx, "[syscall]", {id: "syscall"}))
+                                .addChild(new TextContainer(ctx, "[syscalls]", {id: "syscalls"}))
+                                .addChild(new TextContainer(ctx, "file descriptors:"))
+                                .addChild(new Table(ctx, ["fd", "type", "file"], [], (idx)=>{}, {id: "fds"}))
+                        )
                 )
         );
-        
+                
 
     attachUiToWindow(root, window);
 

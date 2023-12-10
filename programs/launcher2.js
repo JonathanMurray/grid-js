@@ -2,10 +2,10 @@
 
 async function main(args) {
 
-    const window = await stdlib.createWindow("Launcher", [450, 280], {resizable: false});
+    const window = await stdlib.createWindow("Launcher", [450, 300], {resizable: false});
 
     const gui = await import("../lib/gui.mjs");
-    
+
     const {
         attachUiToWindow,
         redraw,
@@ -19,13 +19,13 @@ async function main(args) {
         Expand,
     } = gui;
 
-    
     const descriptions = {
         "terminal": "Explore the system with a shell.",
         "snake": "Eat the fruit and don't collide!",
         "sudoku": "Solve the puzzle!",
         "editor": "Edit text files.",
-        "demo": "Showcases GUI capabilities",
+        "taskman": "Monitor running processes",
+        "demo": "(Showcase of GUI capabilities)",
     };
     const fileNames = Object.keys(descriptions);
 

@@ -13,6 +13,8 @@ class System {
         // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
         this._nextOpenFileDescriptionId = 1;
         this.openFileDescriptions = {};
+
+        this._nextUnnamedPipeId = 1;
     }
 
     static async init() {
@@ -63,20 +65,27 @@ class System {
             "time", 
         ];
         let files = {
-            "textfile": new TextFile("hello world\nthis is the second line. it is longer. it may even be long enough to have to break.\n and here is the third line after a white space."),
-            "short": new TextFile("hello world"),
-            "empty": new TextFile("<script>\nfunction main() {}\n"),
-            "log": new TextFile("<script>\nasync function main(args) { console.log(args); }\n"),
-            "config.json": new TextFile('{"prompt": "~ "}\n')
+         
         };
         for (let program of programs) {
             const text = await System.fetchProgram(program);    
-            files[program] = new TextFile(text);
+            files[program] = new TextFile(program, text);
         }
 
-        files["con"] = new BrowserConsoleFile();
-        files["null"] = new NullFile();
-        files["p"] = new PipeFile();
+        const customFiles = [
+            new TextFile("textfile", "hello world\nthis is the second line. it is longer. it may even be long enough to have to break.\n and here is the third line after a white space."),
+            new TextFile("short", "hello world"),
+            new TextFile("empty", "<script>\nfunction main() {}\n"),
+            new TextFile("log", "<script>\nasync function main(args) { console.log(args); }\n"),
+            new TextFile("config.json", '{"prompt": "~ "}\n'),
+            new BrowserConsoleFile("con"),
+            new NullFile("null"),
+            new PipeFile("p"),
+        ];
+
+        for (const f of customFiles) {
+            files[f.getFileName()] = f;
+        }
 
         const system = new System(files);
 
@@ -92,6 +101,8 @@ class System {
 
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
         await system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
+
+        await system._spawnProcess({programName: "taskman", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }
@@ -373,7 +384,7 @@ class System {
             const proc = this.process(pid);
             let fds = {};
             for (const [fd, value] of Object.entries(proc.fds)) {
-                fds[fd] = value.getFileType();
+                fds[fd] = {type: value.getFileType(), name: value.getFileName()};
             }
             procs.push({
                 pid, 
@@ -394,7 +405,7 @@ class System {
         let file = this._fileSystem[fileName];
         if (file == undefined) {
             if (createIfNecessary) {
-                file = new TextFile("");
+                file = new TextFile(fileName, "");
                 this._fileSystem[fileName] = file;
             } else {
                 throw new SysError("no such file");
@@ -414,7 +425,8 @@ class System {
     }
 
     procCreateUnnamedPipe(proc) {
-        const pipeFile = new PipeFile();
+        const id = this._nextUnnamedPipeId ++;
+        const pipeFile = new PipeFile(`[pipe:${id}]`);
         const reader = this._addOpenFileDescription(pipeFile, FileOpenMode.READ);
         const writer = this._addOpenFileDescription(pipeFile, FileOpenMode.WRITE);
         const readerId = proc.addFileDescriptor(reader);

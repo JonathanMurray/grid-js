@@ -45,6 +45,10 @@ class _PtySlaveFile {
     getFileType() {
         return FileType.PTY;
     }
+
+    getFileName() {
+        return `[slave:${this._pty._sid}]`;
+    }
 }
 
 class _PtyMasterFile {
@@ -82,6 +86,10 @@ class _PtyMasterFile {
 
     getFileType() {
         return FileType.PTY;
+    }
+
+    getFileName() {
+        return `[master:${this._pty._sid}]`;
     }
 }
 
@@ -394,6 +402,14 @@ class _Pipe {
 }
 
 class NullFile {
+    constructor(fileName) {
+        this._fileName = fileName;
+    }
+    
+    getFileName() {
+        return this._fileName;
+    }
+
     requestWriteAt(_charIndex, writer) {
         writer();
         // The text is discarded
@@ -427,9 +443,15 @@ class NullFile {
 }
 
 class BrowserConsoleFile {
-    constructor() {
+
+    constructor(fileName) {
+        this._fileName = fileName;
         this._input = "";
         this._waitingReaders = [];
+    }
+    
+    getFileName() {
+        return this._fileName;
     }
 
     // This call is meant to originate from the user typing into the browser's dev console
@@ -481,8 +503,13 @@ class BrowserConsoleFile {
 }
 
 class PipeFile {
-    constructor() {
+    constructor(fileName) {
+        this._fileName = fileName;
         this._pipe = new _Pipe();
+    }
+    
+    getFileName() {
+        return this._fileName;
     }
 
     requestReadAt(_charIndex, args) {
@@ -531,8 +558,13 @@ class PipeFile {
 }
 
 class TextFile {
-    constructor(text) {
+    constructor(fileName, text) {
+        this._fileName = fileName;
         this.text = text;
+    }
+
+    getFileName() {
+        return this._fileName;
     }
 
     requestWriteAt(charIndex, writer) {
@@ -654,6 +686,10 @@ class OpenFileDescription {
     getFileType() {
         return this._file.getFileType();
     }
+
+    getFileName() {
+        return this._file.getFileName();
+    }
 }
 
 class FileDescriptor {
@@ -697,6 +733,10 @@ class FileDescriptor {
 
     getFileType() {
         return this._openFileDescription.getFileType();
+    }
+
+    getFileName() {
+        return this._openFileDescription.getFileName();
     }
 }
 
