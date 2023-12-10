@@ -267,6 +267,9 @@ class Sudoku {
 
 async function main(args) {
 
+    const {Grid} = await import("../lib/grid.mjs");
+    self.Grid = Grid;
+
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 

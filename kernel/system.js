@@ -1,7 +1,5 @@
 "use strict";
 
-
-
 class System {
 
     constructor(files) {
@@ -18,6 +16,12 @@ class System {
     }
 
     static async init() {
+
+        const util = await import("../util.mjs");
+        // Make all parts of util globally available in the kernel
+        for (const key in util) {
+            self[key] = util[key];
+        }
 
         /*
         system.printOutput([
@@ -36,6 +40,7 @@ class System {
             "demo",
             "echo",
             "editor", 
+            "debug",
             "filepicker",
             "filepicker2",
             "inspect",
@@ -77,16 +82,16 @@ class System {
 
         const nullStream = system._addOpenFileDescription(files["null"], FileOpenMode.READ_WRITE);
 
-        function spawnFromUi(programName) {
+        async function spawnFromUi(programName) {
             
             const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
-            system._spawnProcess({programName, args: [], fds, ppid: null, pgid: "START_NEW", sid: null});    
+            await system._spawnProcess({programName, args: [], fds, ppid: null, pgid: "START_NEW", sid: null});    
         }
 
         system._windowManager = await WindowManager.init(spawnFromUi);
 
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
-        system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
+        await system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
 
         return system;
     }
@@ -288,7 +293,7 @@ class System {
         });
     }
 
-    _spawnProcess({programName, args, fds, ppid, pgid, sid}) {
+    async _spawnProcess({programName, args, fds, ppid, pgid, sid}) {
         assert(args != undefined);
         const file = this._fileSystem[programName];
 
@@ -315,14 +320,24 @@ class System {
             sid = pid;  // The new process becomes leader of a new session
         }
 
-        const worker = new Worker("kernel/process-worker.js", {name: `[${pid}] ${programName}` });
+        const worker = new Worker("kernel/process-worker.mjs", {name: `[${pid}] ${programName}`, type: "module"});
         const proc = new Process(worker, code, programName, args, pid, fds, ppid, pgid, sid);
         this._processes[pid] = proc;
 
-        console.log(`[${pid}] NEW PROCESS (${programName}). parent=${ppid}, group=${pgid}, session=${sid}`)
+        console.log(`[${pid}] NEW PROCESS (${programName}). parent=${ppid}, group=${pgid}, session=${sid}`);
 
-        worker.postMessage({startProcess: {programName, code, args, pid}});
+        // Since the worker initializes asynchronously (due to using modules), we await an init message from it
+        // (at which point we know that it's listening for messages) before we send anything to it.
+        let setWorkerInitialized;
+        const isWorkerInitialized = new Promise((r) => setWorkerInitialized = r);
+        worker.onmessage = (msg) => {
+            assert(msg.data.initDone);
+            setWorkerInitialized();
+        };
+        await isWorkerInitialized;
+
         worker.onmessage = (msg) => this.handleMessageFromWorker(pid, msg);
+        worker.postMessage({startProcess: {programName, code, args, pid}});
 
         return pid;
     }

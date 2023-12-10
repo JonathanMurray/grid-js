@@ -1,28 +1,24 @@
 // This file runs a process, sandboxed in a web worker
 // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers
 
-let dependencies = [
-    "util.js", 
-    "lib/document-cursor.js", 
-    "lib/grid.js",
-    "lib/gui.js",
-    "lib/stdlib.js", 
-    "lib/terminal-grid.js", 
-];
-dependencies = dependencies.map(s => `../${s}`);
 
-importScripts(...dependencies);
-
+const stdlib = await import("../lib/stdlib.mjs");
+// Make these parts of stdlib globally available in programs
 const {write, writeln, writeError, read, readln, log} = stdlib;
 
+const util = await import("../util.mjs");
+// Make all parts of util globally available in programs
+for (const key in util) {
+    self[key] = util[key];
+}
 
 function sandbox(code, args) {
     eval(code);
     return main(args);
 }
 
-(function () {
-
+// Scope to hide variables from the sandboxed program
+{
     let nextSyscallSequenceNum = 1;
     let pendingSyscalls = {};
     
@@ -33,10 +29,10 @@ function sandbox(code, args) {
     let windowInputHandler = null;
     let terminalResizeSignalHandler = () => {};
 
-    this.handleWindowInput = (x) => windowInputHandler = x;
-    this.handleTerminalResizeSignal = (x) => terminalResizeSignalHandler = x;
+    self.handleWindowInput = (x) => windowInputHandler = x;
+    self.handleTerminalResizeSignal = (x) => terminalResizeSignalHandler = x;
 
-    this.syscall = async function(name, arg) {
+    self.syscall = async function(name, arg) {
 
         let sequenceNum = nextSyscallSequenceNum ++;
         assert(!(sequenceNum in pendingSyscalls), `message id ${sequenceNum} in ${JSON.stringify(pendingSyscalls)}`);
@@ -95,7 +91,7 @@ function sandbox(code, args) {
     
                 const {args} = data.startProcess;
                 pid = data.startProcess.pid;
-                this.pid = pid;
+                self.pid = pid;
                 programName = data.startProcess.programName;
                 code = data.startProcess.code;
     
@@ -103,10 +99,10 @@ function sandbox(code, args) {
                 code = code.replaceAll(/DEBUG\(([^;]+)\)/g, `console.log("[${pid}]", "${programName} DEBUG($1):", $1);`)
     
                 // in 'strict mode' eval:ed code is not allowed to declare new variables, so without this main doesn't make it out of the eval
-                code += "\nthis.main = main";
+                code += "\nself.main = main";
     
                 try {
-                    result = sandbox(code, args);
+                    const result = sandbox(code, args);
                     Promise.resolve(result)
                         .then((value) => { console.debug("Program result: ", value); syscall("exit");})
                         .catch((e) => { onProgramCrashed(e); });
@@ -137,4 +133,8 @@ function sandbox(code, args) {
         }
     });
 
-})();
+}
+
+// tell the kernel that we're ready to receive messages
+postMessage({initDone: true});
+

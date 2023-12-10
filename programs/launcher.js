@@ -2,6 +2,9 @@
 
 async function main(args) {
 
+    const {Grid} = await import("../lib/grid.mjs");
+    const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
+
     const window = await stdlib.createWindow("Launcher", [450, 250], {resizable: false});
 
     const cellSize = [12, 21];

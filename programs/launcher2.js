@@ -4,6 +4,8 @@ async function main(args) {
 
     const window = await stdlib.createWindow("Launcher", [450, 280], {resizable: false});
 
+    const gui = await import("../lib/gui.mjs");
+    
     const {
         attachUiToWindow,
         redraw,

@@ -2,6 +2,8 @@
 
 async function main(args) {
 
+    const {Grid} = await import("../lib/grid.mjs");
+
     const window = await stdlib.createWindow("File picker", [450, 42], {resizable: false});
 
     const cellSize = [12, 21];

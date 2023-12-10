@@ -7,6 +7,8 @@ async function main(args) {
 
     const window = await stdlib.createWindow("Task manager", [W, H], {resizable: true});
 
+    const gui = await import("../lib/gui.mjs");
+
     const {
         attachUiToWindow,
         redraw,

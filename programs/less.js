@@ -1,6 +1,10 @@
 "use strict";
 
 async function main(args) {
+
+    const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
+    self.DocumentWithCursor = DocumentWithCursor;
+
     try {
         if (args.length >= 1) {
             const fileName = args[0];

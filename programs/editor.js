@@ -262,6 +262,11 @@ class Editor {
 
 async function main(args) {
 
+    const {Grid} = await import("../lib/grid.mjs");
+    self.Grid = Grid;
+    const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
+    self.DocumentWithCursor = DocumentWithCursor;
+
     let fileName;
     if (args.length > 0) {
         fileName = args[0];

@@ -4,6 +4,8 @@ async function main(args) {
 
     let fileNames = await syscall("listFiles");
 
+    const gui = await import("../lib/gui.mjs");
+
     const {
         attachUiToWindow,
         redraw,
