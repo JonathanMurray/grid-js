@@ -1,4 +1,4 @@
-const PseudoTerminalMode = {
+const _PseudoTerminalMode = {
     /** raw mode */
     CHARACTER: "CHARACTER",
 
@@ -94,7 +94,7 @@ class _PtyMasterFile {
 }
 
 // TODO: Handle this with a device file instead. It will be "just another case", sitting next to "textfile" and "browser console".
-class PseudoTerminal {
+export class PseudoTerminal {
     // Pseudoterminal a.k.a. PTY is used for IO between the terminal and the shell.
     // https://man7.org/linux/man-pages/man7/pty.7.html
     // https://unix.stackexchange.com/questions/117981/what-are-the-responsibilities-of-each-pseudo-terminal-pty-component-software
@@ -102,9 +102,9 @@ class PseudoTerminal {
         this._sid = sid
         this.foreground_pgid = null;
 
-        this._mode = PseudoTerminalMode.LINE;
+        this._mode = _PseudoTerminalMode.LINE;
         this._system = system;
-        this._lineDiscipline = new LineDiscipline(this);
+        this._lineDiscipline = new _LineDiscipline(this);
 
         this._pipeToSlave = new _Pipe();
         this._pipeToMaster = new _Pipe();
@@ -126,12 +126,12 @@ class PseudoTerminal {
 
     _requestWriteOnMaster(writer) {
         let text = writer();
-        if (this._mode == PseudoTerminalMode.LINE) {
+        if (this._mode == _PseudoTerminalMode.LINE) {
             this._lineDiscipline.handleTextFromMaster(text);
-        } else if (this._mode == PseudoTerminalMode.CHARACTER) {
+        } else if (this._mode == _PseudoTerminalMode.CHARACTER) {
             this.writeToSlave(text);
         } else {
-            assert(this._mode == PseudoTerminalMode.CHARACTER_AND_SIGINT);
+            assert(this._mode == _PseudoTerminalMode.CHARACTER_AND_SIGINT);
             let buf = "";
             while (text.length > 0) {
                 if (text[0] == ASCII_END_OF_TEXT) {
@@ -159,7 +159,7 @@ class PseudoTerminal {
 
     control(config) {
         if ("mode" in config) {
-            if (config.mode in PseudoTerminalMode) {
+            if (config.mode in _PseudoTerminalMode) {
                 this._mode = config.mode;
                 return;
             }
@@ -204,7 +204,7 @@ class PseudoTerminal {
     }
 }
 
-class LineDiscipline {
+class _LineDiscipline {
     constructor(pty) {
         this.pty = pty;
         this.line = new TextWithCursor();
@@ -401,7 +401,7 @@ class _Pipe {
     }
 }
 
-class NullFile {
+export class NullFile {
     constructor(fileName) {
         this._fileName = fileName;
     }
@@ -442,7 +442,7 @@ class NullFile {
     }
 }
 
-class BrowserConsoleFile {
+export class BrowserConsoleFile {
 
     constructor(fileName) {
         this._fileName = fileName;
@@ -502,7 +502,7 @@ class BrowserConsoleFile {
     }
 }
 
-class PipeFile {
+export class PipeFile {
     constructor(fileName) {
         this._fileName = fileName;
         this._pipe = new _Pipe();
@@ -557,7 +557,7 @@ class PipeFile {
     }
 }
 
-class TextFile {
+export class TextFile {
     constructor(fileName, text) {
         this._fileName = fileName;
         this.text = text;
@@ -603,13 +603,13 @@ class TextFile {
     }
 }
 
-const FileOpenMode = {
+export const FileOpenMode = {
     READ: "READ",
     WRITE: "WRITE",
     READ_WRITE: "READ_WRITE",
 }
 
-class OpenFileDescription {
+export class OpenFileDescription {
     constructor(system, id, file, mode) {
         this._system = system;
         this._id = id;
@@ -692,7 +692,7 @@ class OpenFileDescription {
     }
 }
 
-class FileDescriptor {
+export class FileDescriptor {
     constructor(openFileDescription) {
         this._openFileDescription = openFileDescription;
         this._isOpen = true;

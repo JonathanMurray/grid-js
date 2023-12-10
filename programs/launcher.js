@@ -1,9 +1,9 @@
 "use strict";
 
-async function main(args) {
+const {Grid} = await import("../lib/grid.mjs");
+const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
 
-    const {Grid} = await import("../lib/grid.mjs");
-    const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
+async function main(args) {
 
     const window = await stdlib.createWindow("Launcher", [450, 250], {resizable: false});
 

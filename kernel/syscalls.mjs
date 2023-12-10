@@ -1,3 +1,4 @@
+import { SignalBehaviour } from "./process.mjs";
 
 function validateSyscallArgs(args, required, optional=[]) {
     if (typeof args != "object") {
@@ -17,7 +18,7 @@ function validateSyscallArgs(args, required, optional=[]) {
     return args;
 }
 
-class Syscalls {
+export class Syscalls {
     constructor(system) {
         this.system = system;
     }

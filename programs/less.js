@@ -1,9 +1,8 @@
 "use strict";
 
-async function main(args) {
+const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
 
-    const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
-    self.DocumentWithCursor = DocumentWithCursor;
+async function main(args) {
 
     try {
         if (args.length >= 1) {

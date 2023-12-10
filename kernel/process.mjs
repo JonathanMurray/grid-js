@@ -1,5 +1,11 @@
+export const SignalBehaviour = {
+    EXIT: "EXIT",
+    IGNORE: "IGNORE",
+    HANDLE: "HANDLE"
+};
 
-class Process {
+
+export class Process {
 
     constructor(worker, code, programName, args, pid, fds, ppid, pgid, sid) {
         assert(fds != undefined);

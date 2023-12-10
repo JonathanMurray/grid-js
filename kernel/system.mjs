@@ -1,38 +1,27 @@
 "use strict";
 
+
+const {Syscalls} = await import("./syscalls.mjs");
+const {Process} = await import("./process.mjs")
+const {WindowManager} = await import("./window-manager.mjs");
+const {TextFile, BrowserConsoleFile, NullFile, PipeFile, FileOpenMode, OpenFileDescription, FileDescriptor, PseudoTerminal} = await import("./io.mjs");
+        
+const util = await import("../util.mjs");
+// Make all parts of util globally available in the kernel
+for (const key in util) {
+    self[key] = util[key];
+}
+
+async function fetchProgram(programName) {
+    const response = await fetch("programs/" + programName + ".js", {});
+    let code = await response.text();
+    code = "<script>\n" + code;
+    return code;
+}
+
 class System {
 
-    constructor(files) {
-        this._fileSystem = files;
-        this._syscalls = new Syscalls(this);
-        this._nextPid = 1;
-        this._processes = {};
-        this._pseudoTerminals = {};
-        this._windowManager = null;
-
-        // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
-        this._nextOpenFileDescriptionId = 1;
-        this.openFileDescriptions = {};
-
-        this._nextUnnamedPipeId = 1;
-    }
-
     static async init() {
-
-        const util = await import("../util.mjs");
-        // Make all parts of util globally available in the kernel
-        for (const key in util) {
-            self[key] = util[key];
-        }
-
-        /*
-        system.printOutput([
-            "~ Welcome! ~",
-            "------------",
-            `Current time: ${now.getHours()}:${now.getMinutes()}`, 
-            "Type help to get started."
-        ]);
-        */
 
         const programs = [
             "cat",
@@ -64,14 +53,12 @@ class System {
             "top",
             "time", 
         ];
-        let files = {
-         
-        };
+        let files = {};
         for (let program of programs) {
-            const text = await System.fetchProgram(program);    
+            const text = await fetchProgram(program);    
             files[program] = new TextFile(program, text);
         }
-
+        
         const customFiles = [
             new TextFile("textfile", "hello world\nthis is the second line. it is longer. it may even be long enough to have to break.\n and here is the third line after a white space."),
             new TextFile("short", "hello world"),
@@ -82,40 +69,48 @@ class System {
             new NullFile("null"),
             new PipeFile("p"),
         ];
-
+        
         for (const f of customFiles) {
             files[f.getFileName()] = f;
         }
-
+        
         const system = new System(files);
-
+        
         const nullStream = system._addOpenFileDescription(files["null"], FileOpenMode.READ_WRITE);
-
+        
         async function spawnFromUi(programName) {
             
             const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
             await system._spawnProcess({programName, args: [], fds, ppid: null, pgid: "START_NEW", sid: null});    
         }
-
+        
         system._windowManager = await WindowManager.init(spawnFromUi);
-
+        
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
         await system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
-
-        await system._spawnProcess({programName: "taskman", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
-
+        
+        //await system._spawnProcess({programName: "taskman", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
+        
         return system;
+    }
+
+    constructor(files) {
+        this._fileSystem = files;
+        this._syscalls = new Syscalls(this);
+        this._nextPid = 1;
+        this._processes = {};
+        this._pseudoTerminals = {};
+        this._windowManager = null;
+
+        // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
+        this._nextOpenFileDescriptionId = 1;
+        this.openFileDescriptions = {};
+
+        this._nextUnnamedPipeId = 1;
     }
 
     writeInputFromBrowser(text) {
         this._fileSystem["con"].addInputFromBrowser(text);
-    }
-
-    static async fetchProgram(programName) {
-        const response = await fetch("programs/" + programName + ".js", {});
-        let code = await response.text();
-        code = "<script>\n" + code;
-        return code;
     }
 
     async call(syscall, args, pid) {
@@ -585,11 +580,7 @@ class System {
     }
 }
 
-const SignalBehaviour = {
-    EXIT: "EXIT",
-    IGNORE: "IGNORE",
-    HANDLE: "HANDLE"
-};
+window.sys = System.init();
 
 class SysError {
     constructor(message, errno) {

@@ -1,5 +1,8 @@
 "use strict";
 
+
+const {Grid} = await import("../lib/grid.mjs");
+
 class Snake {
 
     static LEFT = [-1, 0];
@@ -206,8 +209,6 @@ class Snake {
 
 async function main(args) {
 
-    const {Grid} = await import("../lib/grid.mjs");
-    self.Grid = Grid;
 
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});

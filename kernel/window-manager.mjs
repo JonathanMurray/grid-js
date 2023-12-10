@@ -26,7 +26,7 @@ function rectInPage(element) {
     return {x: window.scrollX + r.x , y: window.scrollY + r.y, width: r.width, height: r.height};
 }
 
-class WindowManager {
+export class WindowManager {
 
     static async init(launchProgram) {
 

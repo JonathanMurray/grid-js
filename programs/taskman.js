@@ -68,8 +68,8 @@ async function main(args) {
                 .addChild(
                     new Container({expand: Expand.YES, verticalScroll: true, })
                         .addChild(
-                            new Container({bg: "#999", padding: [10, 10],  expand: Expand.YES, direction: Direction.VERTICAL})
-                                .addChild(new TextContainer(ctx, "[name]", {id: "programName"}))
+                            new Container({bg: "#666", padding: [10, 10],  expand: Expand.YES, direction: Direction.VERTICAL})
+                                .addChild(new TextContainer(ctx, "[name]", {id: "programName", color: "#AFF"}))
                                 .addChild(new TextContainer(ctx, "[status]", {id: "status"}))
                                 .addChild(new TextContainer(ctx, "[sid]", {id: "sid"}))
                                 .addChild(new TextContainer(ctx, "[syscall]", {id: "syscall"}))

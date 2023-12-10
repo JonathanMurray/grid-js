@@ -6,19 +6,6 @@
 <body>
 </body>
 
-
-<script src="kernel/io.js"></script>
-<script src="kernel/window-manager.js"></script>
-<script src="kernel/system.js"></script>
-<script src="kernel/process.js"></script>
-<script src="kernel/syscalls.js"></script>
-
-<script>
-
-System.init().then((system) => {
-    window.sys = system;
-});
-
-</script>
+<script src="kernel/system.mjs" type="module"></script>
 
 </html>

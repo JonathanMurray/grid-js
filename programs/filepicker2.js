@@ -17,7 +17,6 @@ async function main(args) {
         TextInput,
         Button,
         Container,
-
     } = gui;
 
     const window = await stdlib.createWindow("File picker", [600, 320], {resizable: false});

@@ -1,8 +1,8 @@
 "use strict";
 
-async function main(args) {
+const {TerminalGrid} = await import("../lib/terminal-grid.mjs");
 
-    const {TerminalGrid} = await import("../lib/terminal-grid.mjs");
+async function main(args) {
 
     const programName = args[0] || "shell";
 
