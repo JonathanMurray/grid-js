@@ -29,7 +29,7 @@ async function main(args) {
             writeln(`ppid: ${proc.ppid}`);
             writeln(`\nfile descriptors:`);
             for (const [fd, value] of Object.entries(proc.fds)) {
-                writeln(`${fd}: ${value}`);
+                writeln(`${fd}: ${JSON.stringify(value)}`);
             }
             await syscall("exit");
         }

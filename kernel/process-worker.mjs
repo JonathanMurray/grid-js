@@ -50,7 +50,6 @@ addEventListener("message", message => {
             programName = data.startProcess.programName;
 
             sys.init(pid, programName);
-            //self["syscall"] = sys.syscall;
 
             let code = data.startProcess.code;
 

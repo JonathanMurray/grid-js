@@ -8,13 +8,6 @@ import { Syscalls } from "./syscalls.mjs";
 import { SysError } from "./errors.mjs";
 import { Errno } from "./errors.mjs";
 import { ANSI_CSI, assert } from "../shared.mjs";
-        
-import * as shared from "../shared.mjs";
-// TODO
-// Make all parts of util globally available in the kernel
-for (const key in shared) {
-    self[key] = shared[key];
-}
 
 async function fetchProgram(programName) {
     if (!programName.endsWith(".mjs")) {
@@ -39,6 +32,7 @@ class System {
             "echo",
             "editor", 
             "debug",
+            "fibonacci",
             "filepicker",
             "filepicker2",
             "inspect",
@@ -66,7 +60,7 @@ class System {
             program = program.replace(/(\.js)|(\.mjs)$/, "");
             files[program] = new TextFile(program, text);
         }
-        
+
         const customFiles = [
             new TextFile("textfile", "hello world\nthis is the second line. it is longer. it may even be long enough to have to break.\n and here is the third line after a white space."),
             new TextFile("short", "hello world"),
@@ -134,9 +128,10 @@ class System {
             args = {};
         }
 
-        proc.syscallCount += 1;
-        
-        return await this._syscalls[syscall](proc, args);
+        proc.onSyscallStart();
+        const result = await this._syscalls[syscall](proc, args);
+        proc.onSyscallEnd();
+        return result;
     }
 
     waitForOtherProcessToExit(pid, pidToWaitFor, nonBlocking) {
@@ -401,6 +396,7 @@ class System {
                 syscallCount: proc.syscallCount,
                 fds,
                 ongoingSyscall: proc.getOngoingSyscall(),
+                userlandActivity: proc.calculateUserlandActivity()
             });
         }
         return procs;
@@ -591,5 +587,5 @@ class System {
 }
 
 // To enable debugging in the browser console
-window["sys"] = System.init();
+window["sys"] = await System.init();
 

@@ -43,9 +43,103 @@ export class Process {
 
         // Historic count, useful for getting a sense of how busy a process is
         this.syscallCount = 0;
+        this._syscallTimestamps = [];
+        this._activityWindowMillis = 3000;
 
         this._nextPromiseId = 1;
         this._ongoingSyscalls = {};
+    }
+
+    _forgetOldSyscallTimestamps() {
+        
+        const nowMillis = Date.now();
+        for (let i = this._syscallTimestamps.length - 1; i >= 0; i--) {
+            const syscall = this._syscallTimestamps[i];
+            
+            if (syscall[1] != null) {
+                const elapsedSinceEnd = nowMillis - syscall[1];
+                if (elapsedSinceEnd > this._activityWindowMillis) {
+                    //console.log(`Forgetting the ${i + 1} oldest syscalls`);
+                    this._syscallTimestamps = this._syscallTimestamps.slice(i + 1);
+                    return;
+                }
+            }
+
+            const elapsedSinceStart = nowMillis - syscall[0];
+            if (elapsedSinceStart > this._activityWindowMillis) {
+                this._syscallTimestamps[i][0] = nowMillis - this._activityWindowMillis; // when calculating activity we only back at a limited window
+                //console.log(`Forgetting the ${i} oldest syscalls`);
+                this._syscallTimestamps = this._syscallTimestamps.slice(i);
+                return;
+            }
+        }
+    }
+
+    onSyscallStart() {
+        this._forgetOldSyscallTimestamps();
+        this.syscallCount += 1;
+        const nowMillis = Date.now();
+        if (this._syscallTimestamps.length > 0) {
+            const lastSyscall = this._syscallTimestamps[this._syscallTimestamps.length - 1];
+            assert(lastSyscall[0] != null);
+            if (lastSyscall[1] == null) {
+                //console.debug("note: a syscall is started while one is already ongoing.");
+                return; //We won't try to measure concurrent syscalls in any sophisticated way.
+            }
+        }
+        this._syscallTimestamps.push([nowMillis, null]);
+    }
+
+    onSyscallEnd() {
+        this._forgetOldSyscallTimestamps();
+        const nowMillis = Date.now();
+        const idx = this._syscallTimestamps.length - 1;
+        const ongoing = this._syscallTimestamps[idx];
+        assert(ongoing.length == 2 && ongoing[0] != null);
+        if (ongoing[1] != null) {
+            //console.debug("note: a syscall ends, but it may have overlapped with other syscalls.");
+        }
+        this._syscallTimestamps[idx][1] = nowMillis;
+    }
+
+    calculateUserlandActivity() {
+        this._forgetOldSyscallTimestamps();
+        if (this._syscallTimestamps.length == 0) {
+            return 1;
+        }
+
+        const now = Date.now();
+        let total = 0;
+        let userland = 0;
+        let t;
+        const lastSyscall = this._syscallTimestamps[this._syscallTimestamps.length - 1];
+        if (lastSyscall[1] == null) {
+            // Syscall is ongoing
+        } else {
+            // No ongoing syscall
+            // TODO: apparently not always true. 
+            // assert(Object.keys(this._ongoingSyscalls).length == 0);
+            userland += now - lastSyscall[1];
+        }
+        total += now - lastSyscall[0];
+        t = lastSyscall[0];
+
+        for (let i = this._syscallTimestamps.length - 2; i >= 0; i--) {
+            const syscall = this._syscallTimestamps[i];
+            total += t - syscall[0];
+            userland += t - syscall[1];
+            t = syscall[0];
+        }
+
+        const timeCovered = now - t;
+        if (timeCovered < this._activityWindowMillis) {
+            const missing = this._activityWindowMillis - timeCovered;
+            userland += missing;
+            total += missing;
+        }
+
+        const activity = userland / total;
+        return activity;
     }
 
     getOngoingSyscall() {

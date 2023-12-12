@@ -22,11 +22,12 @@ async function main(args) {
             let output = ANSI_ERASE_ENTIRE_SCREEN;
             
             output += (`${header("sid")}  ${header("pgid")}  ${header("ppid")}  ${header("pid")}  ` + 
-                       `${header("program")}   ${header("status")}    ${header("syscalls")} ${header("fds")}\n`);
+                       `${header("program")}   ${header("activity")} ${header("status")}    ${header("syscalls")} ${header("fds")}\n`);
             for (let proc of procs) {
                 const ppid = formatPpid(proc.ppid);
                 output += pad(proc.sid, 5) + pad(proc.pgid, 6) + pad(ppid, 6) + pad(proc.pid, 5) + pad(proc.programName, 10) 
-                    + pad(formatExitValue(proc.exitValue), 10) + pad(proc.syscallCount, 9) + JSON.stringify(proc.fds) + "\n";
+                    + pad((proc.userlandActivity * 100).toFixed(0) + "%", 9)
+                    + pad(formatExitValue(proc.exitValue), 10) + pad(proc.syscallCount, 9) + Object.keys(proc.fds) + "\n";
             }
             await write(output);
 
@@ -53,6 +54,9 @@ function formatExitValue(exitValue) {
     if (exitValue == null) {
         return "running";
     }
-    const str = "" + exitValue;
+    let str = "" + exitValue;
+    if (str == "[object Object]") {
+        str = "done";
+    }
     return str;
 }

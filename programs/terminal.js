@@ -38,7 +38,7 @@ async function main(args) {
     ]
 
 
-    const window = await createWindow("Terminal", [500, 400], {menubarItems});
+    const window = await createWindow("Terminal", [700, 400], {menubarItems});
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
@@ -89,6 +89,9 @@ async function main(args) {
             cellSize = [cellSize[0] * modifier, cellSize[1] * modifier];
             await recomputeTerminalSize();
         }
+
+        // TODO: Handling the window events like this (outside regular syscalls) makes it difficult for the OS to monitor
+        // the process activity. It also generally means that there can be multiple syscalls in progress simultaneously.
 
         window.addEventListener("windowWasResized", async (event) => {
             canvas.width = event.width;
