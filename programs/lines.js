@@ -1,5 +1,7 @@
 "use strict";
 
+import { writeError, readln, writeln } from "/lib/stdlib.mjs";
+
 async function main(args) {
 
     let first;

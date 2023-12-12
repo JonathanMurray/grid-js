@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+      "checkJs": true,
+      "noEmit": true,
+  
+      "module": "es2022",
+      "target": "es2022",
+  
+      "strict": true,
+      "skipLibCheck": true,
+      "forceConsistentCasingInFileNames": true,
+  
+      "noImplicitAny": false,
+      "strictNullChecks": false,
+
+      "paths": {
+        "/*": ["./*"]
+      }
+    },
+    "include": [
+      "**/*.mjs",
+      "**/*.js",
+    ],
+    
+  }

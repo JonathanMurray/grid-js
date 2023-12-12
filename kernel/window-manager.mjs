@@ -1,3 +1,5 @@
+import Mustache from "https://cdnjs.cloudflare.com/ajax/libs/mustache.js/4.2.0/mustache.js";
+import { assert } from "../shared.mjs";
 
 const CLASS_FOCUSED = "focused";
 
@@ -26,12 +28,26 @@ function rectInPage(element) {
     return {x: window.scrollX + r.x , y: window.scrollY + r.y, width: r.width, height: r.height};
 }
 
+
+// TODO not needed with strictNullChecks
+ /**
+  * Work-around for "Object is possibly 'null'" and no !-operator in vanilla js
+  * @returns {HTMLElement | null} 
+  * */
+ function findElement(element, selector) {
+    return element.querySelector(selector);
+}
+
+/**
+  * @returns {HTMLElement} 
+  */
+function asHtmlElement(htmlElement) {
+    return htmlElement;
+}
+
 export class WindowManager {
 
     static async init(launchProgram) {
-
-        window.Mustache = (await import("https://cdnjs.cloudflare.com/ajax/libs/mustache.js/4.2.0/mustache.js")).default;
-
         const screenArea = await WindowManager.render("screen-area.mustache");
         document.querySelector("body").appendChild(screenArea);
         return new WindowManager(screenArea, launchProgram);
@@ -53,9 +69,11 @@ export class WindowManager {
 
         this.screenRect = rectInPage(screenArea);
 
-        this.dock = document.querySelector("#dock");
-        this.dockHeight = dock.getBoundingClientRect().height;
-        document.querySelector("#launcher-icon").addEventListener("mousedown", (event) => {
+        
+        this.dock = findElement(document, "#dock");
+        this.dockHeight = this.dock.getBoundingClientRect().height;
+        console.warn(); //TODO
+        findElement(document, "#launcher-icon").addEventListener("mousedown", (event) => {
             this.showLauncher();
 
             // Prevent window manager from taking focus from the launcher
@@ -78,14 +96,14 @@ export class WindowManager {
                 newY = Math.max(newY, minVisible - rect.height); // top side
                 newY = Math.min(newY, this.screenRect.height - this.dockHeight - minVisible); // bottom side
 
-                window.element.style.left = newX;
-                window.element.style.top = newY;
+                window.element.style.left = newX.toString();
+                window.element.style.top = newY.toString();
                 this.setFocused({window})
             } else if (this.ongoingResize != null) {
                 const {window, anchor, offset} = this.ongoingResize;
 
                 const rect = this.rectWithinScreenArea(window.element);
-                const canvasWrapper = window.element.querySelector(".canvas-wrapper");
+                const canvasWrapper = findElement(window.element, ".canvas-wrapper");
                 const canvasRect = this.rectWithinScreenArea(canvasWrapper);
 
                 let newX;
@@ -128,14 +146,14 @@ export class WindowManager {
        
 
                 if (newX != undefined) {
-                    window.element.style.left = newX;
+                    window.element.style.left = newX.toString();
                 }
                 if (newY != undefined) {
-                    window.element.style.top = newY;
+                    window.element.style.top = newY.toString();
                 }
                 if (newWidth != undefined) {
                     canvasWrapper.style.width = `${newWidth}px`;
-                    const titlebar = window.element.querySelector(".titlebar");
+                    const titlebar = findElement(window.element, ".titlebar");
                     const padding = Number.parseInt(titlebar.style.paddingLeft.replace("px", ""));
                     titlebar.style.width = `${newWidth - padding}px`;
                 }
@@ -160,8 +178,8 @@ export class WindowManager {
 
             if (this.ongoingResize != null) {
                 const window = this.ongoingResize.window;
-                const canvasWrapper = window.element.querySelector(".canvas-wrapper");
-                const canvas = window.element.querySelector("canvas");
+                const canvasWrapper = findElement(window.element, ".canvas-wrapper");
+                const canvas = findElement(window.element, "canvas");
                 canvas.style.width = canvasWrapper.style.width;
                 canvas.style.height = canvasWrapper.style.height;
                 const canvasRect = this.rectWithinScreenArea(canvas);
@@ -300,7 +318,7 @@ export class WindowManager {
             if ("window" in newFocused) {
                 const {element, process} = newFocused.window;
                 const pid = process.pid;
-                document.querySelector(`#dock-item-${pid}`).classList.add("focused");
+                findElement(document, `#dock-item-${pid}`).classList.add("focused");
                 if (element.style.zIndex < this.maxZIndex) {
                     element.style.zIndex = ++this.maxZIndex;
                 }
@@ -332,6 +350,9 @@ export class WindowManager {
         this.hoveredResize = {window, anchor};
     }
 
+    /**
+     * @returns {Promise<HTMLElement>}
+     */
     static async render(fileName, args) {
         const url = `kernel/html/${fileName}`;
         const response = await fetch(url);
@@ -339,6 +360,7 @@ export class WindowManager {
         const html = Mustache.render(mustacheTemplate, args);
         const template = document.createElement('template');
         template.innerHTML = html;
+        // @ts-ignore
         return template.content.children[0];
     }
 
@@ -361,9 +383,12 @@ export class WindowManager {
         const winElement = await WindowManager.render("window.mustache", {pid, title, width, height});
 
         const win = {element: winElement, process: proc};
+
+       
     
-        const canvasWrapper = winElement.querySelector(".canvas-wrapper");
-        const canvas = winElement.querySelector("canvas");
+        const canvasWrapper = findElement(winElement, ".canvas-wrapper");
+   
+        const canvas = findElement(winElement, "canvas");
         const styleSize = [`${width / CANVAS_SCALE}px`, `${height / CANVAS_SCALE}px`];
         canvasWrapper.style.width = styleSize[0];
         canvasWrapper.style.height = styleSize[1];
@@ -437,7 +462,7 @@ export class WindowManager {
             }
         });
 
-        const closeButton = winElement.querySelector(".titlebar-button");
+        const closeButton = findElement(winElement, ".titlebar-button");
         closeButton.addEventListener("mousedown", (event) => {
             // Prevent drag
             event.stopPropagation();
@@ -446,7 +471,7 @@ export class WindowManager {
             this.sendInputToProcess(win, {name: "closeWasClicked"});
         });
 
-        const menubar = winElement.querySelector(".menubar");
+        const menubar = findElement(winElement, ".menubar");
         
         for (let itemConfig of menubarItems) {
             const {text, id} = itemConfig;
@@ -457,13 +482,13 @@ export class WindowManager {
                     {buttonId: id, text, items: itemConfig.dropdown}
                 );
                 const dropdown = wrapper.querySelector(".dropdown");
-                const button = wrapper.querySelector(".menubar-button");
+                const button = findElement(wrapper, ".menubar-button");
                 menubar.appendChild(wrapper);
 
                 for (let item of wrapper.querySelectorAll(".dropdown-item")) {
                     item.addEventListener("mousedown", (event) => {
                         this.setFocused(null);
-                        const itemId = item.dataset.itemId;
+                        const itemId = asHtmlElement(item).dataset.itemId;
                         this.sendInputToProcess(win, {name: "menubarDropdownItemWasClicked", event: {itemId}});
                         event.stopPropagation();
                     });
@@ -487,13 +512,14 @@ export class WindowManager {
                 const button = await WindowManager.render("menubar-button.mustache", {buttonId: id, text});
                 menubar.appendChild(button);
                 button.addEventListener("click", (event) => {
-                    const buttonId = event.target.dataset.buttonId;
+                    const button = asHtmlElement(event.target);
+                    const buttonId = button.dataset.buttonId;
                     this.sendInputToProcess(win, {name: "menubarButtonWasClicked", event: {buttonId}});
                 });
             }
         }
 
-        const titlebar = winElement.querySelector(".titlebar");
+        const titlebar = findElement(winElement, ".titlebar");
         titlebar.addEventListener("mousedown", (event) => {
             const {mouseX, mouseY} = this.translateMouse(event);
             if (this.hoveredResize == null) {
@@ -506,25 +532,25 @@ export class WindowManager {
 
         // User input to process
         canvas.addEventListener("mousemove", (event) => {
-            event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
-            this.sendInputToProcess(win, {name: "mousemove", event});
+            const mousemove = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
+            this.sendInputToProcess(win, {name: "mousemove", event: mousemove});
         });
         canvas.addEventListener("mouseout", (event) => {
             this.sendInputToProcess(win, {name: "mouseout", event: {}});
         });
         canvas.addEventListener("click", (event) => {
-            event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
-            this.sendInputToProcess(win, {name: "click", event});
+            const click = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
+            this.sendInputToProcess(win, {name: "click", event: click});
         });
         canvas.addEventListener("mousedown", (event) => {
-            event = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
-            this.sendInputToProcess(win, {name: "mousedown", event});
+            const mousedown = {x: event.offsetX * CANVAS_SCALE, y: event.offsetY * CANVAS_SCALE};
+            this.sendInputToProcess(win, {name: "mousedown", event: mousedown});
         });
         canvas.addEventListener(
             "wheel", 
             (event) => {
-                event = {deltaY: event.deltaY};
-                this.sendInputToProcess(win, {name: "wheel", event});
+                const wheel = {deltaY: event.deltaY};
+                this.sendInputToProcess(win, {name: "wheel", event: wheel});
             }, 
             // "passive" fixes warning log: https://chromestatus.com/feature/5745543795965952
             {passive:true}
@@ -534,14 +560,14 @@ export class WindowManager {
 
         const rect = this.rectWithinScreenArea(winElement);
         const position = this.positionNewWindow(rect.width, rect.height);
-        winElement.style.left = position[0];
-        winElement.style.top = position[1];
+        winElement.style.left = position[0].toString();
+        winElement.style.top = position[1].toString();
 
         // Now that the window is part of the DOM, we can calculate and set dropdown positions
         for (let dropdownWrapper of winElement.querySelectorAll(".dropdown-wrapper")) {
             const windowX = rectInPage(winElement).left;
             const buttonX = rectInPage(dropdownWrapper).left;
-            dropdownWrapper.querySelector(".dropdown").style.left = `${buttonX - windowX}px`;
+            findElement(dropdownWrapper, ".dropdown").style.left = `${buttonX - windowX}px`;
         }
 
         const dockItem = await WindowManager.render("dock-item.mustache", {pid, programName: win.process.programName});
@@ -558,6 +584,7 @@ export class WindowManager {
         this.windows[pid] = win;
         console.log("Added window. ", this.windows);
         
+        // @ts-ignore
         const offscreenCanvas = canvas.transferControlToOffscreen();
         return offscreenCanvas;
     }
@@ -569,7 +596,7 @@ export class WindowManager {
             win.element.remove();
             console.log("Removed window. ", this.windows);
 
-            const dockItem = document.getElementById(`dock-item-${pid}`);
+            const dockItem = findElement(document, `#dock-item-${pid}`);
             assert(dockItem, `dock item must exist, pid=${pid}`);
             dockItem.remove();
         }

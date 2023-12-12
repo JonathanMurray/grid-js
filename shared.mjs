@@ -58,17 +58,6 @@ export function ansiCustomTerminalCommand(commandLen) {
     return `${ANSI_CSI}${commandLen}X`;
 }
 
-export const Errno = {
-    WOULDBLOCK: "WOULDBLOCK",
-    /** Trying to seek on a pipe */
-    SPIPE: "SPIPE",
-}
-
-export const FileType = {
-    PTY: "PTY",
-    PIPE: "PIPE",
-    TEXT: "TEXT"
-}
 
 export class TextWithCursor {
     constructor() {
@@ -130,4 +119,11 @@ export function assert(condition, ...message) {
         console.error("Assertion failed:", ...message);
         debugger;
     }
+}
+
+
+export const FileType = {
+    PTY: "PTY",
+    PIPE: "PIPE",
+    TEXT: "TEXT"
 }

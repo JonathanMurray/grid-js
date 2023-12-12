@@ -1,5 +1,7 @@
 "use strict";
 
+import { syscall } from "/lib/sys.mjs";
+
 async function main(args) {
     await inner();
 }

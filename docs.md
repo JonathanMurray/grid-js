@@ -18,3 +18,5 @@ https://dev.to/napicella/linux-terminals-tty-pty-and-shell-part-2-2cb2
 
 https://docs.oracle.com/javase%2Ftutorial%2Fuiswing%2F%2F/layout/custom.html
 https://docs.oracle.com/javase%2Ftutorial%2F/uiswing/layout/visual.html
+
+https://stackoverflow.com/questions/61196629/what-is-the-proper-way-to-handle-non-event-driven-tasks-with-xlib

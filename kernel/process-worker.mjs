@@ -1,19 +1,10 @@
 // This file runs a process, sandboxed in a web worker
 // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers
 
-self.stdlib = await import("../lib/stdlib.mjs");
-// Make these parts of stdlib globally available in programs
-for (const key in stdlib) {
-    self[key] = stdlib[key];
-}
+import * as sys from "../lib/sys.mjs";
+import { assert } from "../shared.mjs";
 
-const util = await import("../util.mjs");
-// Make all parts of util globally available in programs
-for (const key in util) {
-    self[key] = util[key];
-}
-
-async function sandbox(code, args) {
+async function sandbox(programName, code, args) {
 
     // Get the program's main function out of the async function, so that we can evaluate it here
     code += "\nself.main = main";
@@ -21,12 +12,9 @@ async function sandbox(code, args) {
     // This allows programs to be written as if they are the body of an async function,
     // i.e. they can do top level await (for example to import dependencies).
     await Object.getPrototypeOf(async function() {}).constructor(code)();
-
-    return main(args);
+   
+    return self["main"](args);
 }
-
-let nextSyscallSequenceNum = 1;
-let pendingSyscalls = {};
 
 let pid = null;
 let programName = null;
@@ -37,49 +25,12 @@ let terminalResizeSignalHandler = () => {};
 self.handleWindowInput = (x) => windowInputHandler = x;
 self.handleTerminalResizeSignal = (x) => terminalResizeSignalHandler = x;
 
-self.syscall = async function(name, arg) {
-
-    let sequenceNum = nextSyscallSequenceNum ++;
-    assert(!(sequenceNum in pendingSyscalls), `message id ${sequenceNum} in ${JSON.stringify(pendingSyscalls)}`);
-    let callbacks = {};
-    pendingSyscalls[sequenceNum] = callbacks;
-
-    assert(pid != null, "pid must have been assigned");
-    postMessage({syscall: {syscall: name, arg, sequenceNum}});
-
-    const result = new Promise((resolve, reject) => {
-        callbacks.resolve = resolve;
-        callbacks.reject = reject;
-    });
-    
-    try {
-        return await result;
-    } catch (e) {
-        // Wrap the error so that we get a stacktrace belonging to the worker
-        const newError = new Error(e.message);
-        newError.name = e.name;
-        newError.cause = e;
-        newError.errno = e.errno;
-        throw newError;
-    }
-}
-
-function onSyscallSuccess(sequenceNum, result) {
-    pendingSyscalls[sequenceNum].resolve(result);
-    delete pendingSyscalls[sequenceNum];
-}
-
-function onSyscallError(sequenceNum, error) {
-    pendingSyscalls[sequenceNum].reject(error);
-    delete pendingSyscalls[sequenceNum];
-}
-
 async function onProgramCrashed(error) {
-    console.warn(`[${pid}] Program crashed: `, error);
+    console.warn(`[${pid}] ${programName} crashed: `, error);
     console.warn(`[${pid}] Caused by: `, error.cause);
     postMessage({crashed: error});
 }
-    
+
 addEventListener("message", message => {
 
     try {
@@ -96,37 +47,37 @@ addEventListener("message", message => {
 
             const {args} = data.startProcess;
             pid = data.startProcess.pid;
-            self.pid = pid;
             programName = data.startProcess.programName;
+
+            sys.init(pid, programName);
+            //self["syscall"] = sys.syscall;
+
             let code = data.startProcess.code;
 
             //  DEBUG(expr) is a "macro", available to application code.
-            code = code.replaceAll(/DEBUG\(([^;]+)\)/g, `console.log("[${pid}]", "${programName} DEBUG($1):", $1);`)
+            code = code.replaceAll(/DEBUG\(([^;]+)\)/g, `console.log("[${pid}]", "${programName} DEBUG($1):", $1);`);
+
+            // Replace module-style import statements (https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import)
+            // with dynamic import statements (https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/import).
+            // The program is not run as a module, but inside an asynchronous function, so module-style imports don't work.
+            // However, for development purposes, it seems to be more IDE-friendly to pretend that our programs are modules.
+            code = code.replaceAll(/import (.+) from "(\/.+)";/g, "const $1 = await import(\"$2\");");
 
             try {
-                const result = sandbox(code, args);
+                const result = sandbox(programName, code, args);
                 Promise.resolve(result)
-                    .then((value) => { console.debug("Program result: ", value); syscall("exit");})
+                    .then((value) => { console.debug("Program result: ", value); sys.syscall("exit");})
                     .catch((e) => { onProgramCrashed(e); });
             } catch (e) {
                 onProgramCrashed(e);
             }
 
-        } else if ("syscallResult" in data) {
-            assert(pid != null);
-            const sequenceNum = data.syscallResult.sequenceNum;
-            if ("success" in data.syscallResult) {
-                const result = data.syscallResult.success;
-                onSyscallSuccess(sequenceNum, result);
-            } else {
-                assert("error" in data.syscallResult);
-                const error = data.syscallResult.error;
-                onSyscallError(sequenceNum, error);
-            }
         } else if ("userInput" in data) {
             windowInputHandler(data.userInput.name, data.userInput.event);
         } else if ("terminalResizeSignal" in data) {
             terminalResizeSignalHandler();
+        } else if ("syscallResult" in data) {
+            //Handled in sys.mjs
         } else {
             console.error("Unhandled message in program iframe", data);
         }

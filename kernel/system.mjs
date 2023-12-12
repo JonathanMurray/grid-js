@@ -1,19 +1,26 @@
 "use strict";
 
 
-const {Syscalls} = await import("./syscalls.mjs");
-const {Process} = await import("./process.mjs")
-const {WindowManager} = await import("./window-manager.mjs");
-const {TextFile, BrowserConsoleFile, NullFile, PipeFile, FileOpenMode, OpenFileDescription, FileDescriptor, PseudoTerminal} = await import("./io.mjs");
+import {TextFile, BrowserConsoleFile, NullFile, PipeFile, FileOpenMode, OpenFileDescription, FileDescriptor, PseudoTerminal} from "./io.mjs";
+import { WindowManager } from "./window-manager.mjs";
+import { Process } from "./process.mjs";
+import { Syscalls } from "./syscalls.mjs";
+import { SysError } from "./errors.mjs";
+import { Errno } from "./errors.mjs";
+import { ANSI_CSI, assert } from "../shared.mjs";
         
-const util = await import("../util.mjs");
+import * as shared from "../shared.mjs";
+// TODO
 // Make all parts of util globally available in the kernel
-for (const key in util) {
-    self[key] = util[key];
+for (const key in shared) {
+    self[key] = shared[key];
 }
 
 async function fetchProgram(programName) {
-    const response = await fetch("programs/" + programName + ".js", {});
+    if (!programName.endsWith(".mjs")) {
+        programName += ".js";
+    }
+    const response = await fetch("programs/" + programName, {});
     let code = await response.text();
     code = "<script>\n" + code;
     return code;
@@ -56,6 +63,7 @@ class System {
         let files = {};
         for (let program of programs) {
             const text = await fetchProgram(program);    
+            program = program.replace(/(\.js)|(\.mjs)$/, "");
             files[program] = new TextFile(program, text);
         }
         
@@ -207,9 +215,11 @@ class System {
                         const fileName = match[1];
                         //console.log(`FILENAME: '${fileName}'`)
                         if (fileName.startsWith("eval at") && fileName.endsWith("<anonymous>")) {
-                            const headerLen = 1; // Runnable file starts with a header that is stripped off before we execute it
+                            // + 1: Runnable file starts with a header that is stripped off before we execute it.
+                            // - 2: We run the program in a wrapping async function which presumably adds 2 lines to the start.
+                            const lineCorrection = -1; 
 
-                            const lineNumber = parseInt(match[2]) + headerLen;
+                            const lineNumber = parseInt(match[2]) + lineCorrection;
                             const colNumber = parseInt(match[3]);
                             
                             if (deepestStackPosition == null) {
@@ -580,12 +590,6 @@ class System {
     }
 }
 
-window.sys = System.init();
+// To enable debugging in the browser console
+window["sys"] = System.init();
 
-class SysError {
-    constructor(message, errno) {
-        this.name = "SysError";
-        this.message = message;
-        this.errno = errno;
-    }
-}

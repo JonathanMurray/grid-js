@@ -1,7 +1,8 @@
 "use strict";
 
-
-const {Grid} = await import("../lib/grid.mjs");
+import { Grid } from "/lib/grid.mjs";
+import { createWindow, writeln } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
 
 class Snake {
 
@@ -31,7 +32,6 @@ class Snake {
 
         this.resetGameState();
         
-        this.previousTimestamp;
         this.timeUntilNextFrame = Snake.FRAME_DURATION;
 
         this._bufferedRestartCommand = false;
@@ -220,7 +220,7 @@ async function main(args) {
         },
     ]
 
-    const window = await stdlib.createWindow("Snake", [324, 324], {menubarItems});
+    const window = await createWindow("Snake", [324, 324], {menubarItems});
     const snake = new Snake(window.canvas);
 
     window.addEventListener("menubarButtonWasClicked", ({buttonId}) => {

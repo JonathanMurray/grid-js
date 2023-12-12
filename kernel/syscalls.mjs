@@ -1,3 +1,4 @@
+import { SysError } from "./errors.mjs";
 import { SignalBehaviour } from "./process.mjs";
 
 function validateSyscallArgs(args, required, optional=[]) {

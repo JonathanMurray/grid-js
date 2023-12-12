@@ -1,25 +1,14 @@
 "use strict";
 
+import { TextInput, TextContainer, Container, Direction, Expand, SelectionList, AlignChildren, Button, attachUiToWindow, redraw } from "/lib/gui.mjs";
+import { createWindow } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+
 async function main(args) {
 
     let fileNames = await syscall("listFiles");
 
-    const gui = await import("../lib/gui.mjs");
-
-    const {
-        attachUiToWindow,
-        redraw,
-        Direction,
-        AlignChildren,
-        Expand,
-        SelectionList,
-        TextContainer,
-        TextInput,
-        Button,
-        Container,
-    } = gui;
-
-    const window = await stdlib.createWindow("File picker", [600, 320], {resizable: false});
+    const window = await createWindow("File picker", [600, 320], {resizable: false});
 
     const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
@@ -37,7 +26,7 @@ async function main(args) {
             input = fileNames[itemIdx];
             updateInputElement();
         },
-        {expandHor: true, verticalScroll: true, maxHeight: 195}
+        {expandHor: Expand.YES, verticalScroll: true, maxHeight: 195}
     );
     root.addChild(selectionList);
 

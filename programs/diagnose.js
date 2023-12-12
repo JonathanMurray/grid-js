@@ -1,5 +1,8 @@
 "use strict";
 
+import { writeln, write, read } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+
 async function main(args) {
     let fileNames = await syscall("listFiles");
 
@@ -31,7 +34,7 @@ async function main(args) {
             const result = await syscall("waitForExit", {pid});
             await writeln(JSON.stringify(result));
         } catch (e) {
-            await writeln(`${e.name}: Exception: ${e.message}`);
+            await writeln(`${e["name"]}: Exception: ${e["message"]}`);
             await writeln("Failing process output: ")
             const output = await read(pipeReaderId);
             await writeln(output);

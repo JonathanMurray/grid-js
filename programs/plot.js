@@ -1,5 +1,7 @@
 "use strict";
 
+import { writeln, createWindow } from "/lib/stdlib.mjs";
+
 class Plot {
 
     constructor(canvas, func) {
@@ -75,7 +77,7 @@ async function main(args) {
         title += ": " + func;
     }
 
-    const window = await stdlib.createWindow(title, [300, 300]);
+    const window = await createWindow(title, [300, 300]);
     
     const app = new Plot(window.canvas, func);
 

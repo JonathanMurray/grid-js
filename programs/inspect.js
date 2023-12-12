@@ -1,5 +1,9 @@
 "use strict";
 
+import { writeError, writeln } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+import { ansiBackgroundColor } from "/shared.mjs";
+
 async function main(args) {
 
     if (args.length == 0) {

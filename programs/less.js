@@ -1,6 +1,13 @@
 "use strict";
 
-const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
+import { Errno } from "/kernel/errors.mjs";
+import { DocumentWithCursor } from "/lib/document-cursor.mjs";
+import { writeError, read, write, terminal } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+import { FileType, ANSI_ERASE_ENTIRE_SCREEN, ANSI_CSI, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN } from "/shared.mjs";
+
+
+
 
 async function main(args) {
 
@@ -23,7 +30,7 @@ async function main(args) {
             throw error;
         }
     } finally {
-        await stdlib.terminal.exitAlternateScreen();
+        await terminal.exitAlternateScreen();
     }
 }
 
@@ -34,7 +41,7 @@ async function run(contentFd) {
 
     await syscall("handleInterruptSignal");
     await syscall("configurePseudoTerminal", {mode: "CHARACTER_AND_SIGINT"});
-    await stdlib.terminal.enterAlternateScreen();
+    await terminal.enterAlternateScreen();
 
     let lines;
     let doc;

@@ -1,5 +1,8 @@
 "use strict";
 
+import { writeln } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+
 async function main(args) {
 
     const fd = await syscall("openFile", {fileName: "textfile"});

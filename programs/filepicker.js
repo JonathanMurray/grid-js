@@ -1,10 +1,14 @@
 "use strict";
 
+import { createWindow } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+import { TextWithCursor } from "/shared.mjs";
+import { Grid } from "/lib/grid.mjs";
+
 async function main(args) {
 
-    const {Grid} = await import("../lib/grid.mjs");
 
-    const window = await stdlib.createWindow("File picker", [450, 42], {resizable: false});
+    const window = await createWindow("File picker", [450, 42], {resizable: false});
 
     const cellSize = [12, 21];
     const canvas = window.canvas;

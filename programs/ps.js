@@ -1,5 +1,8 @@
 "use strict";
 
+import { writeln } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+
 async function main(args) {
     const procs = await syscall("listProcesses");
     if (procs.length > 0) {

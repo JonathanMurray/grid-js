@@ -1,32 +1,15 @@
 "use strict";
 
+import { Container, Direction, Expand, AlignChildren, TextContainer, Button, getElementById, debug, SelectionList, TextInput, Table, attachUiToWindow, redraw } from "/lib/gui.mjs";
+import { createWindow } from "/lib/stdlib.mjs";
+
 async function main(args) {
 
     const W = 600;
     const H = 600;
 
-    const window = await stdlib.createWindow("Demo", [W, H], {resizable: true});
+    const window = await createWindow("Demo", [W, H], {resizable: true});
 
-    const gui = await import("../lib/gui.mjs");
-
-    const {
-        attachUiToWindow,
-        redraw,
-        getElementById,
-        Direction,
-        AlignChildren,
-        Expand,
-        SelectionList,
-        TextContainer,
-        TextInput,
-        Button,
-        Container,
-        Table,
-        debug,
-
-    } = gui;
-
-    
     const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
 

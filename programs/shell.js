@@ -1,5 +1,10 @@
 "use strict";
 
+import { read, writeln, write, log, writeError, terminal } from "/lib/stdlib.mjs";
+import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_LINE_TO_RIGHT, ASCII_BACKSPACE, ASCII_END_OF_TRANSMISSION, ASCII_END_OF_TEXT, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_BACK, ANSI_CURSOR_FORWARD, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiBackgroundColor } from "/shared.mjs";
+
+import { syscall } from "/lib/sys.mjs";
+
 let backgroundedJobs = [];
 let history;
 
@@ -20,7 +25,7 @@ async function main(args) {
     async function getInputLine() {
         let editLine = new TextWithCursor();
         
-        const {skippedInput, position: [_line, startCol]} = await stdlib.terminal.getCursorPosition();
+        const {skippedInput, position: [_line, startCol]} = await terminal.getCursorPosition();
 
         function line() {
             return `${ansiSetCursorHorizontalAbsolute(startCol)}${ANSI_ERASE_LINE_TO_RIGHT}${prompt}${editLine.text}`;
@@ -194,7 +199,7 @@ async function handleInputLine(input) {
             try {
                 pid = await syscall("spawn", {program, args, fds: [stdin, stdout], pgid});
             } catch (e) {
-                await writeError(e.message);
+                await writeError(e["message"]);
                 return;
             }
 
@@ -244,7 +249,7 @@ const builtins = {
 
     textcolor: async function(args) {
         if (args.length >= 1) {
-            await stdlib.terminal.setTextStyle(args[0]);
+            await terminal.setTextStyle(args[0]);
         } else {
             await writeError("missing color argument");
         }
@@ -252,14 +257,14 @@ const builtins = {
 
     bgcolor: async function(args) {
         if (args.length >= 1) {
-            await stdlib.terminal.setBackgroundStyle(args[0]);
+            await terminal.setBackgroundStyle(args[0]);
         } else {
             await writeError("missing color argument");
         }
     },
 
     clear: async function(args) {
-        await stdlib.terminal.clear();
+        await terminal.clear();
     },
 
     fg: async function(args) {
@@ -328,12 +333,12 @@ async function parse(line) {
         const word = remainingWords.shift();
         if (command == null && builtin == null) {
             if (word in builtins) {
-                builtin = {name: word}
+                builtin = {name: word, args: null}
             } else if (fileNames.includes(word)) {
                 if (pipeline == null) {
-                    pipeline = {commands: []};
+                    pipeline = {commands: [], runInBackground: false};
                 }
-                command = {program: word};
+                command = {program: word, args: null};
             } else {
                 throw new ParseError(`invalid command: ${word}`);
             }

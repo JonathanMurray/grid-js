@@ -1,3 +1,6 @@
+import { assert } from "../shared.mjs";
+import { SysError } from "./errors.mjs";
+
 export const SignalBehaviour = {
     EXIT: "EXIT",
     IGNORE: "IGNORE",
@@ -27,11 +30,11 @@ export class Process {
         this.fds = fds;
 
         this._nextFd = 0;
-        for (let fd of Object.keys(fds)) {
-            fd = parseInt(fd);
+        for (let fdStr of Object.keys(fds)) {
+            const fd = parseInt(fdStr);
             this._nextFd = Math.max(this._nextFd, fd + 1);
         }
-        assert(this._nextFd != NaN);
+        assert(!Number.isNaN(this._nextFd));
         
         this.exitValue = null;
         this._exitWaiters = [];
@@ -189,12 +192,12 @@ export class Process {
     waitForOtherToExit(otherProc) {
         const {promise, promiseId} = this._syscallPromise("wait");
         
-        function resolve(exitValue) {
+        const resolve = exitValue => {
             //console.log(this.pid, "waitForExit was resolved: ", exitValue);
             this._resolvePromise(promiseId, exitValue);
         }
 
-        otherProc._exitWaiters.push(resolve.bind(this));
+        otherProc._exitWaiters.push(resolve);
         otherProc.handleExitWaiters();
         return promise;
     }
@@ -205,7 +208,7 @@ export class Process {
         const granularityMs = 10;
         const waitUntil = Date.now() + millis;
 
-        function maybeWakeUp() {
+        const maybeWakeUp = () => {
             if (Date.now() > waitUntil) {
                 this._resolvePromise(promiseId);
             } else {
@@ -213,7 +216,7 @@ export class Process {
             }
         }
 
-        maybeWakeUp.bind(this)();
+        maybeWakeUp();
 
         return promise;
     }

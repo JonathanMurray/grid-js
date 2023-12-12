@@ -1,8 +1,11 @@
 "use strict";
 
+import { createWindow, writeln } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+import { assert } from "/shared.mjs";
+import { DocumentWithCursor } from "/lib/document-cursor.mjs";
+import { Grid } from "/lib/grid.mjs";
 
-const {Grid} = await import("../lib/grid.mjs");
-const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
 
 class Editor {
 
@@ -298,7 +301,7 @@ async function main(args) {
         },
     ]
 
-    const window = await stdlib.createWindow("Editor", [600, 400], {menubarItems});
+    const window = await createWindow("Editor", [600, 400], {menubarItems});
 
     const fd = await syscall("openFile", {fileName, createIfNecessary: true});
     const text = await syscall("read", {fd});

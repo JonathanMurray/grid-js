@@ -1,11 +1,15 @@
 "use strict";
 
+import { write, terminal } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+import { ansiBackgroundColor, ANSI_ERASE_ENTIRE_SCREEN } from "/shared.mjs";
+
 async function main(args) {
     await syscall("handleInterruptSignal");
     await syscall("configurePseudoTerminal", {mode: "CHARACTER_AND_SIGINT"});
     
     try {
-        await stdlib.terminal.enterAlternateScreen();
+        await terminal.enterAlternateScreen();
 
         function header(text) {
             return ansiBackgroundColor(text, 44);
@@ -29,11 +33,11 @@ async function main(args) {
             await syscall("sleep", {millis: 500});
         }
     } catch (error) {
-        if (error.name != "ProcessInterrupted") {
+        if (error["name"] != "ProcessInterrupted") {
             throw error;
         }
     } finally {
-        await stdlib.terminal.exitAlternateScreen();
+        await terminal.exitAlternateScreen();
     }
 }
 

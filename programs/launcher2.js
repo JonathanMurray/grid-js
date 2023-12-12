@@ -1,23 +1,12 @@
 "use strict";
 
+import { Container, Direction, Expand, SelectionList, TextContainer, AlignChildren, Button, attachUiToWindow, redraw } from "/lib/gui.mjs";
+import { createWindow } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+
 async function main(args) {
 
-    const window = await stdlib.createWindow("Launcher", [450, 300], {resizable: false});
-
-    const gui = await import("../lib/gui.mjs");
-
-    const {
-        attachUiToWindow,
-        redraw,
-        Direction,
-        AlignChildren,
-        SelectionList,
-        TextContainer,
-        TextInput,
-        Button,
-        Container,
-        Expand,
-    } = gui;
+    const window = await createWindow("Launcher", [450, 300], {resizable: false});
 
     const descriptions = {
         "terminal": "Explore the system with a shell.",
@@ -44,7 +33,7 @@ async function main(args) {
             titleElement.setText(picked);
             descriptionElement.setText(descriptions[picked]);
         },
-        {expandHor: true}
+        {expandHor: Expand.YES}
     );
   
     for (const fileName of fileNames) {

@@ -1,5 +1,8 @@
 "use strict";
 
+import { Grid } from "/lib/grid.mjs";
+import { createWindow, writeln } from "/lib/stdlib.mjs";
+
 class Sudoku {
     constructor(canvas, startingNumbers) {
 
@@ -244,7 +247,7 @@ class Sudoku {
             "xxxxxxxxx" +
             "xxxxxxxxx";
         }
-        console.assert(template, "Bad sudoku string", start);
+        console.assert(template != null, "Bad sudoku string", start);
 
         for (let i = 0; i < start.length; i++) {
             const ch = start.charAt(i);
@@ -267,13 +270,10 @@ class Sudoku {
 
 async function main(args) {
 
-    const {Grid} = await import("../lib/grid.mjs");
-    self.Grid = Grid;
-
     let resolvePromise;
     let programDonePromise = new Promise((r) => {resolvePromise = r;});
 
-    const window = await stdlib.createWindow("Sudoku", [300, 300], {resizable: false});
+    const window = await createWindow("Sudoku", [300, 300], {resizable: false});
     const app = new Sudoku(window.canvas);
 
     window.addEventListener("keydown", (event) => {

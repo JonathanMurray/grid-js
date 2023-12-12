@@ -1,5 +1,9 @@
 "use strict";
 
+import { writeln, write } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+import { assert } from "/shared.mjs";
+
 async function main(args) {
 
     let long = false;

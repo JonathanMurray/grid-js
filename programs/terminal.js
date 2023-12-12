@@ -1,6 +1,9 @@
 "use strict";
 
-const {TerminalGrid} = await import("../lib/terminal-grid.mjs");
+import { createWindow, writeln, write } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+import { TerminalGrid } from "/lib/terminal-grid.mjs";
+import { assert, ASCII_END_OF_TEXT, ASCII_END_OF_TRANSMISSION, ASCII_BACKSPACE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ANSI_CURSOR_FORWARD, ANSI_CURSOR_BACK, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_END_OF_LINE, cursorPositionReport } from "/shared.mjs";
 
 async function main(args) {
 
@@ -35,7 +38,7 @@ async function main(args) {
     ]
 
 
-    const window = await stdlib.createWindow("Terminal", [500, 400], {menubarItems});
+    const window = await createWindow("Terminal", [500, 400], {menubarItems});
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
@@ -187,7 +190,7 @@ async function main(args) {
                     hasChildExited = true;
                     break;
                 } catch (e) {
-                    if (e.errno != "WOULDBLOCK") {
+                    if (e["errno"] != "WOULDBLOCK") {
                         throw e;
                     }
                 }
@@ -243,7 +246,7 @@ async function main(args) {
 
         console.warn(error);
 
-        if (error.name != "ProcessInterrupted") {
+        if (error["name"] != "ProcessInterrupted") {
             console.warn("Terminal crash: ", error);
             debugger;
         }
@@ -253,7 +256,7 @@ async function main(args) {
             await syscall("sendSignalToProcessGroup", {signal: "kill", pgid: childPid});
         }
 
-        if (error.name != "ProcessInterrupted") {
+        if (error["name"] != "ProcessInterrupted") {
             throw error;
         }
     } finally {

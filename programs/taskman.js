@@ -1,30 +1,16 @@
 "use strict";
 
+import { Table, getElementById, Container, Expand, Direction, TextContainer, attachUiToWindow, redraw } from "/lib/gui.mjs";
+import { createWindow } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+
+
 async function main(args) {
 
     const W = 600;
     const H = 400;
 
-    const window = await stdlib.createWindow("Task manager", [W, H], {resizable: true});
-
-    const gui = await import("../lib/gui.mjs");
-
-    const {
-        attachUiToWindow,
-        redraw,
-        getElementById,
-        Direction,
-        AlignChildren,
-        Expand,
-        SelectionList,
-        TextContainer,
-        TextInput,
-        Button,
-        Table,
-        Container,
-        debug,
-
-    } = gui;
+    const window = await createWindow("Task manager", [W, H], {resizable: true});
 
     
     const canvas = window.canvas;

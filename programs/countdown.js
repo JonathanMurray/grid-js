@@ -1,5 +1,8 @@
 "use strict";
 
+import { write, writeln } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+
 async function main(args) {
 
     let counter;

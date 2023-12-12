@@ -1,11 +1,14 @@
 "use strict";
 
-const {Grid} = await import("../lib/grid.mjs");
-const {DocumentWithCursor} = await import("../lib/document-cursor.mjs");
+import { createWindow } from "/lib/stdlib.mjs";
+import { syscall } from "/lib/sys.mjs";
+import { DocumentWithCursor } from "/lib/document-cursor.mjs";
+import { Grid } from "/lib/grid.mjs";
+
 
 async function main(args) {
 
-    const window = await stdlib.createWindow("Launcher", [450, 250], {resizable: false});
+    const window = await createWindow("Launcher", [450, 250], {resizable: false});
 
     const cellSize = [12, 21];
     const canvas = window.canvas;
