@@ -58,7 +58,7 @@ addEventListener("message", message => {
             // with dynamic import statements (https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/import).
             // The program is not run as a module, but inside an asynchronous function, so module-style imports don't work.
             // However, for development purposes, it seems to be more IDE-friendly to pretend that our programs are modules.
-            code = code.replaceAll(/import (.+) from "(\/.+)";/g, "const $1 = await import(\"$2\");");
+            code = code.replaceAll(/import (.+) from "\/(.+)";/g, "const $1 = await import(\"../$2\");");
 
             try {
                 const result = sandbox(programName, code, args);
