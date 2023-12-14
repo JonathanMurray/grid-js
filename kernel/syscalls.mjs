@@ -1,5 +1,6 @@
 import { SysError } from "./errors.mjs";
 import { SignalBehaviour } from "./process.mjs";
+import { System } from "./system.mjs"
 
 function validateSyscallArgs(args, required, optional=[]) {
     if (typeof args != "object") {
@@ -20,6 +21,10 @@ function validateSyscallArgs(args, required, optional=[]) {
 }
 
 export class Syscalls {
+    
+/**
+ * @param {System} system
+ */
     constructor(system) {
         this.system = system;
     }
@@ -135,12 +140,10 @@ export class Syscalls {
         return proc.close(fd);
     }
 
-    /*
-    readAny(proc, args) {
-        const {fds} = validateSyscallArgs(args, ["fds"]);
-        return proc.readAny(fds);
+    pollRead(proc, args) {
+        const {fds, timeoutMillis} = validateSyscallArgs(args, ["fds"], ["timeoutMillis"]);
+        return proc.pollRead(fds, timeoutMillis);
     }
-    */
 
     listFiles(proc, args) {
         return this.system.listFiles();
@@ -168,7 +171,7 @@ export class Syscalls {
     graphics(proc, args) {
         let {title, size, resizable, menubarItems} = validateSyscallArgs(args, ["title", "size", "resizable"], ["menubarItems"]);
         menubarItems = menubarItems || [];
-        return this.system.createWindow(title, size, proc, resizable, menubarItems);
+        return this.system.procSetupGraphics(proc, title, size, resizable, menubarItems);
     }
 
     sleep(proc, args) {

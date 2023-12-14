@@ -190,11 +190,12 @@ export class Process {
             delete this._ongoingSyscalls[id];
             return true;
         }
-        // Promise was not resolved. It had likely been rejected already.
+        // Promise was not resolved. It must have been resolved/rejected by someone else already.
         return false;
     }
     
     write(fd, text) {
+        assert (fd != null);
         const fileDescriptor = this.fds[fd];
         if (fileDescriptor == undefined) {
             throw new SysError("no such fd");
@@ -232,6 +233,22 @@ export class Process {
             return didRead;
         }
         fileDescriptor.requestRead({reader, proc: this, nonBlocking});
+        return promise;
+    }
+
+    pollRead(fds, timeoutMillis) {
+        const {promise, promiseId} = this._syscallPromise("read");
+
+        for (const fd of fds) {
+            const fileDescriptor = this.fds[fd];
+            assert(fileDescriptor != null);
+            fileDescriptor.pollRead(() => {
+                this._resolvePromise(promiseId, fd);
+            });
+        }
+        if (timeoutMillis != null) {
+            setTimeout(() => this._resolvePromise(promiseId, null), timeoutMillis);
+        }
         return promise;
     }
 

@@ -1,7 +1,8 @@
 "use strict";
 
 import { Grid } from "/lib/grid.mjs";
-import { createWindow, writeln } from "/lib/stdlib.mjs";
+import { runEventLoop } from "/lib/gui.mjs";
+import { createWindow, read, writeln } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
 class Snake {
@@ -85,22 +86,7 @@ class Snake {
     }
 
     restart() {
-        this._bufferedRestartCommand = true;
-    }
-
-    async run() {
-        while (true) {
-            if (!this.gameOver) {
-                this.runOneFrame();
-            }
-           
-            await syscall("sleep", {millis: Snake.FRAME_DURATION});
-            
-            if (this._bufferedRestartCommand) {
-                this._bufferedRestartCommand = false;
-                this.resetGameState();
-            }
-        }
+        this.resetGameState();
     }
 
     updateHeaderText() {
@@ -209,10 +195,6 @@ class Snake {
 
 async function main(args) {
 
-
-    let resolvePromise;
-    let programDonePromise = new Promise((r) => {resolvePromise = r;});
-
     const menubarItems = [
         {
             text: "Start over",
@@ -220,31 +202,51 @@ async function main(args) {
         },
     ]
 
-    const window = await createWindow("Snake", [324, 324], {menubarItems});
-    const snake = new Snake(window.canvas);
+    const {socketFd, canvas} = await createWindow("Snake", [324, 324], {menubarItems});
+    const snake = new Snake(canvas);
 
-    window.addEventListener("menubarButtonWasClicked", ({buttonId}) => {
-        snake.restart();
-    });
+    let t = Date.now();
+    let untilNext = 0;
 
-    window.addEventListener("keydown", (event) => {
-        if (event.ctrlKey && event.key == "c") { 
-            writeln("Snake shutting down").finally(resolvePromise);
-        } else {
-            snake.handleKeydown(event);
+    while (true) {
+        const readyFd = await syscall("pollRead", {fds: [socketFd], timeoutMillis: untilNext});
+
+        if (readyFd == socketFd) {
+            const received = await read(socketFd);
+            const messages = JSON.parse(received);
+            for (const {name, event} of messages) {
+                if (name == "menubarButtonWasClicked") {
+                    snake.restart();
+                } else if (name == "keydown") {
+                    if (event.ctrlKey && event.key == "c") { 
+                        await writeln("Snake shutting down");
+                        return;
+                    } else {
+                        snake.handleKeydown(event);
+                    }
+                } else if (name == "windowWasResized") {
+                    console.log("TODO SNAKE RESIZE: ", event);
+                    const shortestSide = Math.min(event.width, event.height);
+                    snake.resize(event.width, event.height);
+                    //window.canvas.width = shortestSide;
+                   // window.canvas.height = shortestSide;
+                    //snake.grid.draw(this._ctx);
+                } else if (name == "closeWasClicked") {
+                    return;
+                }
+            }
         }
-    });
 
-    window.addEventListener("windowWasResized", (event) => {
-        console.log("TODO SNAKE RESIZE: ", event);
-        const shortestSide = Math.min(event.width, event.height);
-        snake.resize(event.width, event.height);
-        //window.canvas.width = shortestSide;
-       // window.canvas.height = shortestSide;
-        //snake.grid.draw(this._ctx);
-    });
+        const now = Date.now();
+        untilNext -= (now - t);
+        t = now;
 
-    snake.run();
+        while (untilNext <= 0) {
+            if (!snake.gameOver) {
+                snake.runOneFrame();
+            }
+            untilNext += Snake.FRAME_DURATION;
+        }
+    }
 
-    return programDonePromise;
 }

@@ -77,9 +77,9 @@ async function main(args) {
         title += ": " + func;
     }
 
-    const window = await createWindow(title, [300, 300]);
+    const {canvas} = await createWindow(title, [300, 300]);
     
-    const app = new Plot(window.canvas, func);
+    const app = new Plot(canvas, func);
 
     return programDonePromise;
 }

@@ -1,7 +1,7 @@
 "use strict";
 
 import { Grid } from "/lib/grid.mjs";
-import { createWindow, writeln } from "/lib/stdlib.mjs";
+import { createWindow, read, write, writeln } from "/lib/stdlib.mjs";
 
 class Sudoku {
     constructor(canvas, startingNumbers) {
@@ -270,31 +270,21 @@ class Sudoku {
 
 async function main(args) {
 
-    let resolvePromise;
-    let programDonePromise = new Promise((r) => {resolvePromise = r;});
+    const {socketFd, canvas} = await createWindow("Sudoku", [300, 300], {resizable: false});
+    const app = new Sudoku(canvas);
 
-    const window = await createWindow("Sudoku", [300, 300], {resizable: false});
-    const app = new Sudoku(window.canvas);
-
-    window.addEventListener("keydown", (event) => {
-        if (event.ctrlKey && event.key == "c") { 
-            writeln("Sudoku shutting down").finally(resolvePromise);
-        } else {
-            app.handleEvent("keydown", event);
-        }
-    });
-
-    window.addEventListener("click", (event) => {
-        app.handleEvent("click", event);
-    });
     
-    window.addEventListener("mousemove", (event) => {
-        app.handleEvent("mousemove", event);
-    });
-
-    window.addEventListener("mouseout",  (event) => {
-        app.handleEvent("mouseout", event);
-    });
-
-    return programDonePromise;
+    while (true) {
+        const received = await read(socketFd);
+        const messages = JSON.parse(received);
+        for (const {name, event} of messages) {
+            if (name == "keydown") {
+                if (event.ctrlKey && event.key == "c") { 
+                    await writeln("Sudoku shutting down");
+                    return;
+                }
+            }
+            app.handleEvent(name, event);
+        }
+    }
 }

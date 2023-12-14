@@ -1,6 +1,6 @@
 "use strict";
 
-import { createWindow, writeln } from "/lib/stdlib.mjs";
+import { createWindow, read, write, writeln } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 import { assert } from "/shared.mjs";
 import { DocumentWithCursor } from "/lib/document-cursor.mjs";
@@ -301,21 +301,35 @@ async function main(args) {
         },
     ]
 
-    const window = await createWindow("Editor", [600, 400], {menubarItems});
+    const {socketFd, canvas} = await createWindow("Editor", [600, 400], {menubarItems});
 
     const fd = await syscall("openFile", {fileName, createIfNecessary: true});
     const text = await syscall("read", {fd});
     await syscall("close", {fd});
     const lines = text.split(/\n|\r\n/);
 
-    const app = new Editor(window.canvas, fileName, lines);
+    const app = new Editor(canvas, fileName, lines);
 
-    window.addEventListener("menubarDropdownItemWasClicked", ({itemId}) => app.ondropdown(itemId));
-    window.addEventListener("keydown", (event) => app.onkeydown(event));
-    window.addEventListener("windowWasResized", (event) =>  app.resize(event.width, event.height));
-    window.addEventListener("wheel", (event) => app.onwheel(event));
-    window.addEventListener("menubarButtonWasClicked", ({buttonId}) => app.onbutton(buttonId));
-
-    return new Promise((r) => {});
+    while (true) {
+        const received = await read(socketFd);
+        const messages = JSON.parse(received);
+        for (const {name, event} of messages) {
+            if (name == "menubarDropdownItemWasClicked") {
+                await app.ondropdown(event.itemId)
+            } else if (name == "keydown") {
+                await app.onkeydown(event);
+            } else if (name == "windowWasResized") {
+                await app.resize(event.width, event.height);
+                const msg = JSON.stringify({resizeDone: null});
+                await write(msg, socketFd);
+            } else if (name == "wheel") {
+                await app.onwheel(event);
+            } else if (name == "menubarButtonWasClicked") {
+                await app.onbutton(event.buttonId);
+            } else if (name == "closeWasClicked") {
+                return;
+            }
+        }
+    }
 }
 

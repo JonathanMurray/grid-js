@@ -1,5 +1,7 @@
+// @ts-ignore
 import Mustache from "https://cdnjs.cloudflare.com/ajax/libs/mustache.js/4.2.0/mustache.js";
-import { assert } from "../shared.mjs";
+import { FileType, assert } from "../shared.mjs";
+import { SysError, Errno } from "./errors.mjs";
 
 const CLASS_FOCUSED = "focused";
 
@@ -57,9 +59,11 @@ export class WindowManager {
         this.screenArea = screenArea;
         this.spawnProgram = spawnProgram;
 
+        this._procSockets = {};
+
         this.draggingWindow = null;
         this.maxZIndex = 1;
-        this.windows = {};
+        this._windows = {};
         this.hoveredResize = null;
         this.ongoingResize = null;
 
@@ -240,8 +244,8 @@ export class WindowManager {
     }
 
     showLauncher() {
-        for (let pid in this.windows) {
-            const win = this.windows[pid];
+        for (let pid in this._windows) {
+            const win = this._windows[pid];
             if (win.process.programName == PROGRAM_LAUNCHER) {
                 this.setFocused({window: win});
                 return;
@@ -255,8 +259,8 @@ export class WindowManager {
         return {x: rect.x - this.screenRect.x, y: rect.y - this.screenRect.y, width: rect.width, height: rect.height};
     }
 
-    onResizeDone(pid) {
-        const canvas = this.windows[pid].element.querySelector("canvas");
+    _onResizeDone(pid) {
+        const canvas = this._windows[pid].element.querySelector("canvas");
         canvas.style.display = "block";
     }
 
@@ -271,18 +275,21 @@ export class WindowManager {
     }
 
     sendInputToProcess(window, userInput) {
-        window.process.worker.postMessage({userInput});
+        const socket = this._procSockets[window.process.pid];
+        assert(socket != null);
+
+        socket._addOutgoingMessage(userInput);
     }
 
     getWindow(pid) {
-        return this.windows[pid];
+        return this._windows[pid];
     }
 
     getFrontMostWindow() {
         let maxZIndex = 0;
         let frontMost = null;
-        for (let pid in this.windows) {
-            const window = this.windows[pid];
+        for (let pid in this._windows) {
+            const window = this._windows[pid];
             if (window.element.style.zIndex > maxZIndex) {
                 maxZIndex = window.element.style.zIndex;
                 frontMost = window;
@@ -376,7 +383,14 @@ export class WindowManager {
         }
     }
 
-    async createWindow(title, [width, height], proc, resizable, menubarItems) {
+    async setupGraphics(proc, title, size, resizable, menubarItems) {
+        const socketFile = new GraphicsSocketFile(this, proc);
+        this._procSockets[proc.pid] = socketFile;
+        const canvas = await this._createWindow(title, size, proc, resizable, menubarItems);
+        return {socketFile, canvas};
+    }
+
+    async _createWindow(title, [width, height], proc, resizable, menubarItems) {
         const pid = proc.pid;
         title = `${title} (pid=${pid})`
 
@@ -581,8 +595,8 @@ export class WindowManager {
 
         this.setFocused({window: win});
 
-        this.windows[pid] = win;
-        console.log("Added window. ", this.windows);
+        this._windows[pid] = win;
+        console.log("Added window. ", this._windows);
         
         // @ts-ignore
         const offscreenCanvas = canvas.transferControlToOffscreen();
@@ -592,9 +606,9 @@ export class WindowManager {
     removeWindowIfExists(pid) {
         const win = this.getWindow(pid);
         if (win) {
-            delete this.windows[pid];
+            delete this._windows[pid];
             win.element.remove();
-            console.log("Removed window. ", this.windows);
+            console.log("Removed window. ", this._windows);
 
             const dockItem = findElement(document, `#dock-item-${pid}`);
             assert(dockItem, `dock item must exist, pid=${pid}`);
@@ -606,5 +620,86 @@ export class WindowManager {
 
     translateMouse(event) {
         return {mouseX: event.pageX - this.screenRect.x, mouseY: event.pageY - this.screenRect.y};
+    }
+}
+
+class GraphicsSocketFile {
+    constructor(windowManager, process) {
+        this._windowManager = windowManager;
+        this._process = process;
+
+        this._isOpen = true;
+        this._outgoingMessages = [];
+        this._waitingReaders = [];
+        this._waitingPollers = [];
+    }
+
+    open() {
+    }
+
+    close() {
+        assert(this._isOpen);
+        this._isOpen = false;
+    }
+
+    async requestWriteAt(_charIdx, writer) {
+        assert(this._isOpen);
+        const text = writer();
+        console.log(text);
+        let request;
+        try {
+            request = JSON.parse(text);
+        } catch (e) {
+            this._addOutgoingMessage({error: `Malformed request: ${e}`});
+            return;
+        }
+
+        if ("resizeDone" in request) {
+            this._windowManager._onResizeDone(this._process.pid);
+        } else {
+            assert(false, "Unhandled graphics request: ", request);   
+        }
+    }
+
+    _addOutgoingMessage(msg) {
+        this._outgoingMessages.push(msg);
+        this._handleWaiting();
+    }
+    
+    requestReadAt(_charIdx, {reader}) {
+        assert(this._isOpen);
+        this._waitingReaders.push(reader);
+        this._handleWaiting();
+    }
+
+    _handleWaiting() {
+        while (this._waitingReaders.length > 0 && this._outgoingMessages.length > 0) {
+            const reader = this._waitingReaders.shift();
+            const text = JSON.stringify(this._outgoingMessages);
+            this._outgoingMessages = [];
+            reader({text});
+        }
+
+        while (this._waitingPollers.length > 0 && this._outgoingMessages.length > 0) {
+            const poller = this._waitingPollers.shift();
+            poller(); // signal to the polling process that the fd is ready for reading
+        }
+    }
+
+    seek() {
+        throw new SysError("cannot seek graphics socket", Errno.SPIPE);
+    }
+
+    getFileType() {
+        return FileType.SOCKET;
+    }
+
+    getFileName() {
+        return `[graphicssocket]`;
+    }
+
+    pollRead(resolver) {
+        this._waitingPollers.push(resolver);
+        this._handleWaiting();
     }
 }

@@ -67,7 +67,7 @@ class _PtyMasterFile {
 
     open() {
     }
-        
+
     close() {
         assert(this._isOpen);
         this._isOpen = false;
@@ -95,6 +95,11 @@ class _PtyMasterFile {
 
     getFileName() {
         return `[master:${this._pty._sid}]`;
+    }
+
+    pollRead(resolver) {
+        assert(this._isOpen);
+        return this._pty._pipeToMaster.pollRead(resolver);
     }
 }
 
@@ -284,9 +289,10 @@ class _LineDiscipline {
 
 class _Pipe {
     constructor() {
-        this.buffer = [];
-        this.waitingReaders = [];
-        this.restrictReadsToProcessGroup = null;
+        this._buffer = [];
+        this._waitingReaders = [];
+        this._waitingPollers = [];
+        this._restrictReadsToProcessGroup = null;
         this._numReaders = 0;
         this._numWriters = 0;
     }
@@ -299,7 +305,7 @@ class _Pipe {
     decrementNumWriters() {
         this._numWriters --;
         assert(this._numWriters >= 0,  "non-negative number of pipe writers");
-        this.handleWaitingReaders();
+        this._handleWaiting();
     }
     
     incrementNumReaders() {
@@ -311,12 +317,12 @@ class _Pipe {
     }
 
     setRestrictReadsToProcessGroup(pgid) {
-        this.restrictReadsToProcessGroup = pgid;
-        while (this.handleWaitingReaders()) {}
+        this._restrictReadsToProcessGroup = pgid;
+        while (this._handleWaiting()) {}
     }
     
     isProcAllowedToRead(proc) {
-        return this.restrictReadsToProcessGroup == null || this.restrictReadsToProcessGroup == proc.pgid;
+        return this._restrictReadsToProcessGroup == null || this._restrictReadsToProcessGroup == proc.pgid;
     }
 
     requestRead({reader, proc, nonBlocking}) {
@@ -324,7 +330,7 @@ class _Pipe {
         assert(proc != null);
         
         if (nonBlocking) {
-            if (this.buffer.length > 0) {
+            if (this._buffer.length > 0) {
                 if (this.isProcAllowedToRead(proc)) {
                     this._invokeReader(reader);
                 } else {
@@ -336,8 +342,13 @@ class _Pipe {
             return;
         }
 
-        this.waitingReaders.push({reader, proc});
-        this.handleWaitingReaders();
+        this._waitingReaders.push({reader, proc});
+        this._handleWaiting();
+    }
+
+    pollRead(resolver) {
+        this._waitingPollers.push(resolver);
+        this._handleWaiting();
     }
     
     requestWrite(writer) {
@@ -348,22 +359,22 @@ class _Pipe {
         }
 
         const text = writer();
-        this.buffer = this.buffer.concat(text);
-        this.handleWaitingReaders();
+        this._buffer = this._buffer.concat(text);
+        this._handleWaiting();
     }
 
-    handleWaitingReaders() {
-        if (this.buffer.length > 0 || this._numWriters == 0) {
-            if (this.waitingReaders.length > 0) {
-                for (let i = 0; i < this.waitingReaders.length;) {
-                    const {reader, proc} = this.waitingReaders[i];
+    _handleWaiting() {
+        if (this._buffer.length > 0 || this._numWriters == 0) {
+            if (this._waitingReaders.length > 0) {
+                for (let i = 0; i < this._waitingReaders.length;) {
+                    const {reader, proc} = this._waitingReaders[i];
                     if (proc.exitValue != null) {
                         // The process will never be able to read
-                        this.waitingReaders.splice(i, 1);
+                        this._waitingReaders.splice(i, 1);
                     } else if (this.isProcAllowedToRead(proc)) {
-                        this.waitingReaders.splice(i, 1);
+                        this._waitingReaders.splice(i, 1);
                         if (this._invokeReader(reader)) {
-                            return true;
+                            return true; // Indicate that it may be useful to call the function again
                         }
                     } else {
                         // The reader was left in the list, and we move onto the next one
@@ -371,6 +382,14 @@ class _Pipe {
                     }
                 }
             }
+
+            // TODO: Handle blocking IO / polling with a generic Kernel-provided wait-queue mechanism?
+            //       https://www.makelinux.net/ldd3/?u=chp-6.shtml
+            while (this._waitingPollers.length > 0) {
+                const poller = this._waitingPollers.shift();
+                poller(); // signal to the polling process that the fd is ready for reading
+            }
+
         }
         return false;
     }
@@ -378,28 +397,28 @@ class _Pipe {
     _invokeReader(reader) {
         let text = "";
         let n = 0;
-        if (this.buffer.length == 0) {
+        if (this._buffer.length == 0) {
             assert(this._numWriters == 0);
             // All writers have been closed.
             // All further reads on this pipe will give EOF
-        } else if (this.buffer[0] == "") {
+        } else if (this._buffer[0] == "") {
             // A writer has pushed EOF to the buffer.
             // It will result in EOF for exactly one read.
             n = 1;
         } else {
             // Offer everything up until (but excluding) EOF
-            for (let i = 0; i < this.buffer.length; i++) {
-                if (this.buffer[i] == "") {
+            for (let i = 0; i < this._buffer.length; i++) {
+                if (this._buffer[i] == "") {
                     break;
                 }
-                text += this.buffer[i];
+                text += this._buffer[i];
                 n += 1;
             }
         }
 
         // Check that a read actually occurs. This is necessary because of readAny()
         if (reader({text})) {
-            this.buffer = this.buffer.slice(n);
+            this._buffer = this._buffer.slice(n);
             return true; 
         }
         return false;
@@ -614,6 +633,8 @@ export const FileOpenMode = {
     READ_WRITE: "READ_WRITE",
 }
 
+
+/** "file" in Linux */
 export class OpenFileDescription {
     constructor(system, id, file, mode) {
         this._system = system;
@@ -695,6 +716,10 @@ export class OpenFileDescription {
     getFileName() {
         return this._file.getFileName();
     }
+
+    pollRead(resolver) {
+        return this._file.pollRead(resolver);
+    }
 }
 
 export class FileDescriptor {
@@ -742,6 +767,10 @@ export class FileDescriptor {
 
     getFileName() {
         return this._openFileDescription.getFileName();
+    }
+
+    pollRead(resolver) {
+        return this._openFileDescription.pollRead(resolver);
     }
 }
 

@@ -1,16 +1,15 @@
 "use strict";
 
-import { Container, Direction, Expand, AlignChildren, TextContainer, Button, getElementById, debug, SelectionList, TextInput, Table, attachUiToWindow, redraw } from "/lib/gui.mjs";
-import { createWindow } from "/lib/stdlib.mjs";
+import { Container, Direction, Expand, AlignChildren, TextContainer, Button, getElementById, debug, SelectionList, TextInput, Table, redraw, runEventLoop } from "/lib/gui.mjs";
+import { createWindow, write } from "/lib/stdlib.mjs";
 
 async function main(args) {
 
     const W = 600;
     const H = 600;
 
-    const window = await createWindow("Demo", [W, H], {resizable: true});
+    const {socketFd, canvas} = await createWindow("Demo", [W, H], {resizable: true});
 
-    const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
 
     let clickCount = 0;
@@ -97,16 +96,17 @@ async function main(args) {
                 )
         );
 
-    attachUiToWindow(root, window);
-
-    window.addEventListener("windowWasResized", (event) => {
-        console.log(event);
-        canvas.width = event.width;
-        canvas.height = event.height;
-
-        root._maxSize = [event.width, event.height];
-        redraw();
-    });
-
-    return new Promise((r) => {});
+    for await (const {name, event} of runEventLoop(root, socketFd, canvas)) {
+        if (name == "windowWasResized") {
+            console.log(event);
+            canvas.width = event.width;
+            canvas.height = event.height;
+    
+            root._maxSize = [event.width, event.height];
+            redraw();
+            
+            const msg = JSON.stringify({resizeDone: null});
+            await write(msg, socketFd);
+        }
+    }
 }

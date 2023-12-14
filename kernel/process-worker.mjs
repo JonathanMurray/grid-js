@@ -19,10 +19,8 @@ async function sandbox(programName, code, args) {
 let pid = null;
 let programName = null;
 
-let windowInputHandler = null;
 let terminalResizeSignalHandler = () => {};
 
-self.handleWindowInput = (x) => windowInputHandler = x;
 self.handleTerminalResizeSignal = (x) => terminalResizeSignalHandler = x;
 
 async function onProgramCrashed(error) {
@@ -71,14 +69,12 @@ addEventListener("message", message => {
                 onProgramCrashed(e);
             }
 
-        } else if ("userInput" in data) {
-            windowInputHandler(data.userInput.name, data.userInput.event);
         } else if ("terminalResizeSignal" in data) {
             terminalResizeSignalHandler();
         } else if ("syscallResult" in data) {
             //Handled in sys.mjs
         } else {
-            console.error("Unhandled message in program iframe", data);
+            console.error("Unhandled message in process worker", data);
         }
     } catch (error) {
         console.error(pid, programName, "Exception while handling message from kernel", error);

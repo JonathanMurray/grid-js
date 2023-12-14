@@ -1,6 +1,6 @@
 "use strict";
 
-import { TextInput, TextContainer, Container, Direction, Expand, SelectionList, AlignChildren, Button, attachUiToWindow, redraw } from "/lib/gui.mjs";
+import { TextInput, TextContainer, Container, Direction, Expand, SelectionList, AlignChildren, Button, redraw, runEventLoop } from "/lib/gui.mjs";
 import { createWindow } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
@@ -8,9 +8,8 @@ async function main(args) {
 
     let fileNames = await syscall("listFiles");
 
-    const window = await createWindow("File picker", [600, 320], {resizable: false});
+    const {socketFd, canvas} = await createWindow("File picker", [600, 320], {resizable: false});
 
-    const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
 
     ctx.font = "18px monospace";
@@ -66,28 +65,26 @@ async function main(args) {
         errorElement.setText("");
     }
 
-    attachUiToWindow(root, window);
-
-    window.addEventListener("keydown", async function(event) {
-        const key = event.key;
-        errorElement.setText("");
-        if (key == "Backspace") {
-            if (event.ctrlKey) {
-                input = "";
-            } else {
-                input = input.slice(0, input.length - 1);
+    for await (const {name, event} of runEventLoop(root, socketFd, canvas)) {
+        if (name == "keydown") {
+            const key = event.key;
+            errorElement.setText("");
+            if (key == "Backspace") {
+                if (event.ctrlKey) {
+                    input = "";
+                } else {
+                    input = input.slice(0, input.length - 1);
+                }
+                updateInputElement();
+            } else if (key == "Enter") {
+                await tryOpen();
+            } else if (key.length == 1) {
+                input += key;
+                updateInputElement();
             }
-            updateInputElement();
-        } else if (key == "Enter") {
-            await tryOpen();
-        } else if (key.length == 1) {
-            input += key;
-            updateInputElement();
+    
+            redraw();
         }
-
-        redraw();
-    });
-
-    return new Promise((r) => {});
+    }
 }
 

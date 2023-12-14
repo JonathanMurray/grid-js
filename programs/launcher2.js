@@ -1,12 +1,12 @@
 "use strict";
 
-import { Container, Direction, Expand, SelectionList, TextContainer, AlignChildren, Button, attachUiToWindow, redraw } from "/lib/gui.mjs";
+import { Container, Direction, Expand, SelectionList, TextContainer, AlignChildren, Button, redraw, runEventLoop } from "/lib/gui.mjs";
 import { createWindow } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
 async function main(args) {
 
-    const window = await createWindow("Launcher", [450, 300], {resizable: false});
+    const {socketFd, canvas} = await createWindow("Launcher", [450, 300], {resizable: false});
 
     const descriptions = {
         "terminal": "Explore the system with a shell.",
@@ -18,7 +18,6 @@ async function main(args) {
     };
     const fileNames = Object.keys(descriptions);
 
-    const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
     
     let picked = null;
@@ -67,15 +66,14 @@ async function main(args) {
         }
     }
 
-    attachUiToWindow(root, window);
+    for await (const {name, event} of runEventLoop(root, socketFd, canvas)) {
+        if (name == "keydown") {
+            const key = event.key;
+            if (key == "Enter") {
+                await maybeLaunch();
+                redraw();
+            } 
+        }
+    }
 
-    window.addEventListener("keydown", async function(event) {
-        const key = event.key;
-        if (key == "Enter") {
-            await maybeLaunch();
-            redraw();
-        } 
-    });
-
-    return new Promise((r) => {});
 }

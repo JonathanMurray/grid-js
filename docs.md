@@ -20,3 +20,7 @@ https://docs.oracle.com/javase%2Ftutorial%2Fuiswing%2F%2F/layout/custom.html
 https://docs.oracle.com/javase%2Ftutorial%2F/uiswing/layout/visual.html
 
 https://stackoverflow.com/questions/61196629/what-is-the-proper-way-to-handle-non-event-driven-tasks-with-xlib
+
+https://www.oreilly.com/library/view/linux-device-drivers/0596000081/ch05s03.html
+https://www.makelinux.net/ldd3/?u=chp-6.shtml
+https://www.makelinux.net/ldd3/chp-6-sect-2.shtml

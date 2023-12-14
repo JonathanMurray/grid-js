@@ -1,6 +1,6 @@
 "use strict";
 
-import { createWindow, writeln, write } from "/lib/stdlib.mjs";
+import { createWindow, writeln, write, setupGraphics } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 import { TerminalGrid } from "/lib/terminal-grid.mjs";
 import { assert, ASCII_END_OF_TEXT, ASCII_END_OF_TRANSMISSION, ASCII_BACKSPACE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ANSI_CURSOR_FORWARD, ANSI_CURSOR_BACK, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_END_OF_LINE, cursorPositionReport } from "/shared.mjs";
@@ -37,13 +37,11 @@ async function main(args) {
         },
     ]
 
-
-    const window = await createWindow("Terminal", [700, 400], {menubarItems});
+    const {socketFd: graphicsFd, canvas} = await syscall("graphics", {title: "Terminal", size: [700, 400], menubarItems, resizable: true});
 
     // We need to be leader in order to create a PTY
     await syscall("joinNewSessionAndProcessGroup");
 
-    const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
     
     let cellSize = [10, 20];
@@ -90,37 +88,38 @@ async function main(args) {
             await recomputeTerminalSize();
         }
 
-        // TODO: Handling the window events like this (outside regular syscalls) makes it difficult for the OS to monitor
-        // the process activity. It also generally means that there can be multiple syscalls in progress simultaneously.
-
-        window.addEventListener("windowWasResized", async (event) => {
+        async function onwindowWasResized(event) {
             canvas.width = event.width;
             canvas.height = event.height;
 
-            await recomputeTerminalSize()
-        });
+            await recomputeTerminalSize();
 
-        window.addEventListener("closeWasClicked", async (event) => {
+            const msg = JSON.stringify({resizeDone: null});
+            await write(msg, graphicsFd);
+        };
+
+        async function oncloseWasClicked(event) {
             await writeln("Terminal shutting down. (Window was closed.)");
             await syscall("exit");
-        });
+        };
 
-        window.addEventListener("wheel", (event) => {
+        function onwheel(event) {
             const updated = terminalGrid.scroll(event.deltaY);
             if (updated) {
                 draw();
             }
-        });
+        };
 
-        window.addEventListener("menubarButtonWasClicked", ({buttonId}) => {
+        function onmenubarButtonWasClicked({buttonId}) {
             if (buttonId == "ZOOM_IN") {
                 changeFontSize(1.11);
             } else {
                 assert(buttonId == "ZOOM_OUT");
                 changeFontSize(0.9);
             }
-        });
-        window.addEventListener("menubarDropdownItemWasClicked", ({itemId}) => {
+        };
+        
+        function onmenubarDropdownItemWasClicked({itemId}) {
             if (itemId == "DARK") {
                 terminalGrid.setDefaultBackground("black");
                 terminalGrid.setDefaultForeground("white");
@@ -134,9 +133,10 @@ async function main(args) {
                 assert(false);
             }
             draw();
-        });
+        };
 
-        window.addEventListener("keydown", (event) => {
+
+        async function onkeydown(event) {
 
             if (hasChildExited) {
                 return;
@@ -179,11 +179,38 @@ async function main(args) {
             }
     
             if (sequence != null) {
-                write(sequence, ptyMaster);
+                await write(sequence, ptyMaster);
             }
-        });
+        };
+
+        async function handleGraphicsMessages(messages) {
+            const parsed = JSON.parse(messages);
+            for (const {name, event} of parsed) {
+                if (name == "keydown") {
+                    await onkeydown(event);
+                } else if (name == "menubarDropdownItemWasClicked") {
+                    onmenubarDropdownItemWasClicked(event);
+                } else if (name =="windowWasResized") {
+                    await onwindowWasResized(event);
+                } else if (name =="closeWasClicked") {
+                    await oncloseWasClicked(event);
+                } else if (name =="wheel") {
+                    onwheel(event);
+                } else if (name =="menubarButtonWasClicked") {
+                    onmenubarButtonWasClicked(event);
+                }
+            }
+        }
     
         while (true) {
+            const readyFd = await syscall("pollRead", {fds: [graphicsFd, ptyMaster]});
+            if (readyFd == graphicsFd) {
+                const messages = await syscall("read", {fd: graphicsFd});
+                await handleGraphicsMessages(messages);
+                draw();
+                continue;
+            }
+
             let text = await syscall("read", {fd: ptyMaster});
 
             if (text == "") {
@@ -234,7 +261,7 @@ async function main(args) {
                     }
                 }
             }
-
+            
             draw();
         }
 

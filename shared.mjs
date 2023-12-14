@@ -125,5 +125,6 @@ export function assert(condition, ...message) {
 export const FileType = {
     PTY: "PTY",
     PIPE: "PIPE",
-    TEXT: "TEXT"
+    TEXT: "TEXT",
+    SOCKET: "SOCKET",
 }

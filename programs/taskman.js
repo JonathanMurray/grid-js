@@ -1,7 +1,7 @@
 "use strict";
 
-import { Table, getElementById, Container, Expand, Direction, TextContainer, attachUiToWindow, redraw } from "/lib/gui.mjs";
-import { createWindow } from "/lib/stdlib.mjs";
+import { Table, getElementById, Container, Expand, Direction, TextContainer, redraw, init, getEvents } from "/lib/gui.mjs";
+import { createWindow, write } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
 
@@ -10,10 +10,9 @@ async function main(args) {
     const W = 600;
     const H = 400;
 
-    const window = await createWindow("Task manager", [W, H], {resizable: true});
+    const {socketFd, canvas} = await createWindow("Task manager", [W, H], {resizable: true});
 
     
-    const canvas = window.canvas;
     const ctx = canvas.getContext("2d");
 
     let procs = [];
@@ -37,6 +36,7 @@ async function main(args) {
             const status = proc.exitValue == null ? "running" : proc.exitValue;
             getElementById("status").setText(`status: ${status}`);
             getElementById("sid").setText(`sid: ${proc.sid}`);
+            getElementById("activity").setText(`activity: ${(proc.userlandActivity * 100).toFixed(0)} %`);
             getElementById("syscall").setText(`ongoing: ${proc.ongoingSyscall}`);
             getElementById("syscalls").setText(`#syscalls: ${proc.syscallCount}`);
             const rows = Object.entries(proc.fds).map(([fd, {type, name}]) => [fd, type, name]);
@@ -58,6 +58,7 @@ async function main(args) {
                                 .addChild(new TextContainer(ctx, "[name]", {id: "programName", color: "#AFF"}))
                                 .addChild(new TextContainer(ctx, "[status]", {id: "status"}))
                                 .addChild(new TextContainer(ctx, "[sid]", {id: "sid"}))
+                                .addChild(new TextContainer(ctx, "[activity]", {id: "activity"}))
                                 .addChild(new TextContainer(ctx, "[syscall]", {id: "syscall"}))
                                 .addChild(new TextContainer(ctx, "[syscalls]", {id: "syscalls"}))
                                 .addChild(new TextContainer(ctx, "file descriptors:"))
@@ -65,41 +66,47 @@ async function main(args) {
                         )
                 )
         );
-                
+             
+    let nextUpdateAt = Date.now();
 
-    attachUiToWindow(root, window);
-
-    window.addEventListener("windowWasResized", (event) => {
-        console.log(event);
-        canvas.width = event.width;
-        canvas.height = event.height;
-
-        root._maxSize = [event.width, event.height];
-        redraw();
-    });
-
-    window.addEventListener("keydown", (event) => {
-        //debug();
-    });
-
+    init(root, socketFd, canvas);
 
     while (true) {
-        procs = await syscall("listProcesses");
-        let programRows = [];
-        for (const proc of procs) {
-            programRows.push([proc.programName, proc.pid]);
-
-            if (selectedPid == proc.pid) {
-                updateProcessDetails(proc);
+        for await (const {name, event} of getEvents(nextUpdateAt - Date.now())) {
+            if (name == "windowWasResized") {
+                console.log(event);
+                canvas.width = event.width;
+                canvas.height = event.height;
+        
+                root._maxSize = [event.width, event.height];
+                redraw();
+                
+                const msg = JSON.stringify({resizeDone: null});
+                await write(msg, socketFd);
+            } else if (name == "closeWasClicked") {
+                return;
             }
-
         }
-        procTable.setRows(programRows); 
 
-        redraw();
+        const now = Date.now();
+        if (nextUpdateAt <= now) {
+
+            procs = await syscall("listProcesses");
+            let programRows = [];
+            for (const proc of procs) {
+                programRows.push([proc.programName, proc.pid]);
     
-        await syscall("sleep", {millis: 1000});
+                if (selectedPid == proc.pid) {
+                    updateProcessDetails(proc);
+                }
+    
+            }
+            procTable.setRows(programRows); 
+    
+            redraw();
+        
+            nextUpdateAt = now + 1000;
+        }
     }
 
-    return new Promise((r) => {});
 }

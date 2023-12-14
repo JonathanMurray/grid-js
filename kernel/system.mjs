@@ -19,7 +19,7 @@ async function fetchProgram(programName) {
     return code;
 }
 
-class System {
+export class System {
 
     static async init() {
 
@@ -33,12 +33,10 @@ class System {
             "editor", 
             "debug",
             "fibonacci",
-            "filepicker",
             "filepicker2",
             "inspect",
             "json",
             "kill",
-            "launcher", 
             "launcher2",
             "less",
             "lines",
@@ -169,8 +167,6 @@ class System {
             this.handleSyscallMessage(pid, message);
         } else if ("crashed" in message.data) {
             this.handleProcessCrashed(pid, message.data.crashed)
-        } else if ("resizeDone" in message.data) {
-            this._windowManager.onResizeDone(pid);
         } else {
             console.error("Unhandled message from worker: ", message);
         }
@@ -285,10 +281,10 @@ class System {
             if (pid in this._processes) {
                 console.debug(pid, `... ${syscall}() --> ${JSON.stringify(result)}`);
                 let transfer = [];
-                if (result instanceof OffscreenCanvas) {
+                if (result != null && typeof result == "object" && "canvas" in result && result.canvas instanceof OffscreenCanvas) {
                     // Ownership of the canvas needs to be transferred to the worker
                     // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
-                    transfer.push(result);
+                    transfer.push(result.canvas);
                 }
                 this._processes[pid].worker.postMessage({syscallResult: {success: result, sequenceNum}}, transfer);
             }
@@ -353,8 +349,11 @@ class System {
         return pid;
     }
 
-    createWindow(title, size, proc, resizable, menubarItems) {
-        return this._windowManager.createWindow(title, size, proc, resizable, menubarItems);
+    async procSetupGraphics(proc, title, size, resizable, menubarItems) {
+        const {socketFile, canvas} = await this._windowManager.setupGraphics(proc, title, size, resizable, menubarItems);
+        const fileDescriptor = this._addOpenFileDescription(socketFile, FileOpenMode.READ_WRITE);
+        const socketFd = proc.addFileDescriptor(fileDescriptor);
+        return {socketFd, canvas};
     }
 
     onProcessExit(proc, exitValue) {
@@ -419,6 +418,7 @@ class System {
     }
 
     _addOpenFileDescription(file, mode) {
+        assert(file != null);
         const id = this._nextOpenFileDescriptionId ++;
         const openFileDescription = new OpenFileDescription(this, id, file, mode);
         this.openFileDescriptions[id] = openFileDescription;
