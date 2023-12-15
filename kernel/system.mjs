@@ -89,7 +89,7 @@ export class System {
         const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
         await system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
         
-        //await system._spawnProcess({programName: "taskman", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
+        //await system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
         
         return system;
     }

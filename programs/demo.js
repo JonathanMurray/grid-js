@@ -1,7 +1,8 @@
 "use strict";
 
-import { Container, Direction, Expand, AlignChildren, TextContainer, Button, getElementById, debug, SelectionList, TextInput, Table, redraw, runEventLoop } from "/lib/gui.mjs";
-import { createWindow, write } from "/lib/stdlib.mjs";
+import { Container, Direction, Expand, AlignChildren, TextContainer, Button, getElementById, debug, SelectionList, TextInput, Table, redraw, ImageWidget, init, getEvents } from "/lib/gui.mjs";
+import { PeriodicTimer, createWindow, write } from "/lib/stdlib.mjs";
+
 
 async function main(args) {
 
@@ -13,6 +14,33 @@ async function main(args) {
     const ctx = canvas.getContext("2d");
 
     let clickCount = 0;
+
+    const imageCanvas = new OffscreenCanvas(100, 100);
+    const imageCtx = imageCanvas.getContext("2d");
+    const image = new ImageWidget();
+    imageCtx.translate(imageCanvas.width / 2, imageCanvas.height / 2);
+    let animateImage = true;
+    let animationSpeed = 5;
+    function updateAnimation() {
+        const angle = animationSpeed * Math.PI / 180;
+        if (animateImage) {
+            imageCtx.rotate(angle);
+        }
+        imageCtx.fillStyle = "magenta";
+        imageCtx.fillRect(0, 0, imageCanvas.width / 3,  imageCanvas.height / 3);
+        imageCtx.strokeStyle = "brown";
+        imageCtx.beginPath();
+        imageCtx.arc(imageCanvas.width / 5, imageCanvas.width / 5, imageCanvas.width / 3, 0, 2 * Math.PI);
+        imageCtx.stroke();
+        image.setImage(imageCanvas.transferToImageBitmap());
+    }
+    function speedupAnimation() {
+        animationSpeed = Math.min(animationSpeed + 1, 50);
+    }
+    function slowdownAnimation() {
+        animationSpeed = Math.max(animationSpeed - 1, 1);
+    }
+    updateAnimation();
 
     const root = new Container({bg: "#AAA", maxSize: [W, H], direction: Direction.HORIZONTAL, padding: [5, 5], expand: Expand.YES})
         .addChild(
@@ -93,20 +121,45 @@ async function main(args) {
                         .addChild(new TextContainer(ctx, "Type something and it will appear below:"))
                         .addChild(new TextInput(ctx, "", {maxTextLength: 20}))
                         .addChild(new Table(ctx, ["First col", "Second"], [["A", "B"], ["C", "Longer text"]]))
+                        .addChild(
+                            new Container({direction: Direction.HORIZONTAL, padding: [10, 5], borderColor: "black"})
+                                .addChild(image)
+                                .addChild(
+                                    new Container()
+                                        .addChild(new Button(ctx, "toggle", {onClick: () => {animateImage = !animateImage}}))
+                                        .addChild(new Button(ctx, "faster", {onClick: () => {speedupAnimation()}}))
+                                        .addChild(new Button(ctx, "slower", {onClick: () => {slowdownAnimation()}}))
+                                )
+                                
+                        )
+                        
                 )
         );
 
-    for await (const {name, event} of runEventLoop(root, socketFd, canvas)) {
-        if (name == "windowWasResized") {
-            console.log(event);
-            canvas.width = event.width;
-            canvas.height = event.height;
-    
-            root._maxSize = [event.width, event.height];
-            redraw();
-            
-            const msg = JSON.stringify({resizeDone: null});
-            await write(msg, socketFd);
+    init(root, socketFd, canvas);
+
+    const interval = 30;
+    const timer = new PeriodicTimer(interval);
+    while (true) {
+        for await (const {name, event} of getEvents(interval)) {
+            if (name == "windowWasResized") {
+                console.log(event);
+                canvas.width = event.width;
+                canvas.height = event.height;
+        
+                root._maxSize = [event.width, event.height];
+                redraw();
+                
+                const msg = JSON.stringify({resizeDone: null});
+                await write(msg, socketFd);
+            } else if (name == "closeWasClicked") {
+                return;
+            }
         }
+        await timer.tick();
+        updateAnimation();
+        redraw();
     }
+
+   
 }

@@ -1,6 +1,6 @@
 "use strict";
 
-import { createWindow, writeln, write, setupGraphics } from "/lib/stdlib.mjs";
+import { writeln, write } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 import { TerminalGrid } from "/lib/terminal-grid.mjs";
 import { assert, ASCII_END_OF_TEXT, ASCII_END_OF_TRANSMISSION, ASCII_BACKSPACE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ANSI_CURSOR_FORWARD, ANSI_CURSOR_BACK, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_END_OF_LINE, cursorPositionReport } from "/shared.mjs";

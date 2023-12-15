@@ -1,7 +1,6 @@
 "use strict";
 
 import { Grid } from "/lib/grid.mjs";
-import { runEventLoop } from "/lib/gui.mjs";
 import { createWindow, read, writeln } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
