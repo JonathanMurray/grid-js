@@ -259,7 +259,6 @@ async function main(args) {
                         text = text.slice(commandLen);
                     } else {
                         console.error("Unhandled ansi function: ", ansiFunction, `(\\x${ansiFunction.codePointAt(0).toString(16)})`, args, consumed, matched);
-                        return;
                     }
                 }
             }

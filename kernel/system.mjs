@@ -35,6 +35,7 @@ export class System {
             "fibonacci",
             "filepicker2",
             "inspect",
+            "js",
             "json",
             "kill",
             "launcher2",

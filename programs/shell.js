@@ -64,7 +64,6 @@ async function main(args) {
                     editLine.moveToStart();
                     matched = 1;
                 } else if (received.startsWith(ANSI_CURSOR_BACK)) {
-                    log("MOVE LEFT"); // TODO
                     editLine.moveLeft();
                     matched = ANSI_CURSOR_BACK.length;
                 } else if (received.startsWith(ANSI_CURSOR_FORWARD)) {
