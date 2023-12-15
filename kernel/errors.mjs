@@ -11,3 +11,10 @@ export const Errno = {
     /** Trying to seek on a pipe */
     SPIPE: "SPIPE",
 }
+
+export class WaitError {
+    constructor(exitError) {
+        this.name = "WaitError";
+        this.exitError = exitError;
+    }
+}

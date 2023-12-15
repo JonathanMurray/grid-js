@@ -4,6 +4,7 @@ import { read, writeln, write, log, writeError, terminal } from "/lib/stdlib.mjs
 import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_LINE_TO_RIGHT, ASCII_BACKSPACE, ASCII_END_OF_TRANSMISSION, ASCII_END_OF_TEXT, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_BACK, ANSI_CURSOR_FORWARD, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiBackgroundColor } from "/shared.mjs";
 
 import { syscall } from "/lib/sys.mjs";
+import { reportCrash} from "/lib/errors.mjs";
 
 let backgroundedJobs = [];
 let history;
@@ -161,7 +162,7 @@ async function handleInputLine(input) {
         let pipedStdin;
 
         let pgid = null;
-        let pids = [];
+        let jobEntries = [];
         
         for (let i = 0; i < commands.length; i++) {
 
@@ -213,7 +214,7 @@ async function handleInputLine(input) {
                 await syscall("close", {fd: stdout});
             }
 
-            pids.push(pid);
+            jobEntries.push({pid, program});
 
             if (i == 0) {
                 // All remaining processes in the pipeline join the newly created process group.
@@ -221,7 +222,7 @@ async function handleInputLine(input) {
             }
         }
         
-        const job = {pgid, pids};
+        const job = {pgid, procs: jobEntries};
         if (runInBackground) {
             backgroundedJobs.push(job);
         } else {
@@ -302,16 +303,21 @@ async function runJobInForeground(job) {
 
     // Give the terminal to the new foreground group
     await syscall("setPtyForegroundPgid", {pgid: job.pgid});
-    const lastPid = job.pids.slice(-1)[0];
-    for (let i = job.pids.length - 1; i >= 0; i--) {
-        const pid = job.pids[i];
+    for (let i = job.procs.length - 1; i >= 0; i--) {
+        const pid = job.procs[i].pid;
         try {
             await syscall("waitForExit", {pid});
         } catch (e) {
-            console.log(`Shell caught error when waiting for foreground process ${pid}: `, e);
+            if (e["name"] == "WaitError") {
+                for await (const line of reportCrash(pid, job.procs[i].program, e["exitError"])) {
+                    writeln(line);
+                }
+            } else {
+                throw e;
+            }
         }
     }
-   
+
     // Reclaim the terminal
     await syscall("setPtyForegroundPgid", {toSelf: true});
     await syscall("configurePseudoTerminal", {mode: "CHARACTER"});

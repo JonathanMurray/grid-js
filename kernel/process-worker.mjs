@@ -26,7 +26,7 @@ self.handleTerminalResizeSignal = (x) => terminalResizeSignalHandler = x;
 async function onProgramCrashed(error) {
     console.warn(`[${pid}] ${programName} crashed: `, error);
     console.warn(`[${pid}] Caused by: `, error.cause);
-    postMessage({crashed: error});
+    sys.syscall("exit", error);
 }
 
 addEventListener("message", message => {

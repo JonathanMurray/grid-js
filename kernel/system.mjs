@@ -5,7 +5,7 @@ import {TextFile, BrowserConsoleFile, NullFile, PipeFile, FileOpenMode, OpenFile
 import { WindowManager } from "./window-manager.mjs";
 import { Process } from "./process.mjs";
 import { Syscalls } from "./syscalls.mjs";
-import { SysError } from "./errors.mjs";
+import { SysError, WaitError } from "./errors.mjs";
 import { Errno } from "./errors.mjs";
 import { ANSI_CSI, assert } from "../shared.mjs";
 
@@ -136,9 +136,18 @@ export class System {
         const proc = this.process(pid);
         const procToWaitFor = this.process(pidToWaitFor);
 
+        function throwIfError(exitValue) {
+            if (exitValue instanceof Error) {
+                // The error we have here is the wrapped error created in sys.mjs, i.e. it's of type Error
+                // and not easily parseable. So we'll wrap it once again to make it parseable.
+                throw new WaitError(exitValue);
+            }
+            return exitValue;
+        }
+
         if (nonBlocking) {
             if (procToWaitFor.exitValue != null) {
-                return procToWaitFor.exitValue;
+                return throwIfError(procToWaitFor.exitValue);
             } else {
                 throw {name: "SysError", message: "process is still running", errno: Errno.WOULDBLOCK};
             }
@@ -150,14 +159,7 @@ export class System {
             console.log(`${pid} successfully waited for ${pidToWaitFor} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
             delete self._processes[pidToWaitFor];
             //console.log("After deletion; processes: ", self.processes);
-
-            if (exitValue instanceof Error) {
-                // The error we have here is the wrapped error created in process-worker.js, i.e. it's of type Error
-                // and not easily parseable. So we'll wrap it once again to make it parseable.
-                throw new SysError(`process exit value: ${exitValue}`);
-            }
-
-            return exitValue;
+            return throwIfError(exitValue);
         });
     }
     
@@ -165,112 +167,9 @@ export class System {
         if ("syscall" in message.data) {
             // Sandboxed programs send us syscalls from iframe
             this.handleSyscallMessage(pid, message);
-        } else if ("crashed" in message.data) {
-            this.handleProcessCrashed(pid, message.data.crashed)
         } else {
             console.error("Unhandled message from worker: ", message);
         }
-    }
-
-    handleProcessCrashed(pid, error) {
-        const proc = this._processes[pid];
-        assert(proc != undefined);
-
-        const stdout = proc.fds[1];
-        if (stdout != undefined) {
-
-            const programName = proc.programName;
-
-            function writeErrorLine(text) {
-                function writer(error)  {
-                    console.assert(error == undefined, "Failed writing crash message", text);
-                    return text + "\n";
-                }
-                stdout.requestWrite(writer);
-            }
-
-            writeErrorLine(`${ANSI_CSI}37;41m[${pid}] Process crashed!${ANSI_CSI}39;49m`);
-
-            if (error.stack) {
-                const stackLines = error.stack.split('\n');
-    
-                let hasStartedWritingStackLines = false;
-
-                let deepestStackPosition = null;
-    
-                const regex = /\((.+):(.+):(.+)\)/;
-                for (let stackLine of stackLines) {
-                    //console.log("STACK LINE: ", stackLine);
-                    const match = stackLine.match(regex);
-                    if (match) {
-                        const fileName = match[1];
-                        //console.log(`FILENAME: '${fileName}'`)
-                        if (fileName.startsWith("eval at") && fileName.endsWith("<anonymous>")) {
-                            // + 1: Runnable file starts with a header that is stripped off before we execute it.
-                            // - 2: We run the program in a wrapping async function which presumably adds 2 lines to the start.
-                            const lineCorrection = -1; 
-
-                            const lineNumber = parseInt(match[2]) + lineCorrection;
-                            const colNumber = parseInt(match[3]);
-                            
-                            if (deepestStackPosition == null) {
-                                deepestStackPosition = [lineNumber, colNumber];
-                            }
-                            const translatedStackLine = stackLine.replace(regex, `(${programName}:${lineNumber}:${colNumber})`);
-                            //console.log(`TRANSLATED LINE: '${translatedStackLine}'`);
-                            writeErrorLine(translatedStackLine);
-                            hasStartedWritingStackLines = true;
-                        }
-                    } else if (!hasStartedWritingStackLines) {
-                        writeErrorLine(stackLine);
-                    }
-                }
-
-                if (deepestStackPosition != null) {
-                    let [lineNumber, colNumber] = deepestStackPosition;
-
-                    const code = this._fileSystem[programName].text;
-                    let line = code.split("\n")[lineNumber - 1];
-
-                    if (line !== undefined) {
-                        // Remove uninteresting whitespace on the left
-                        let trimmedLine = line.trim();
-                        colNumber -= (line.length - trimmedLine.length);
-                        line = trimmedLine;
-    
-                        const width = 35;
-                        let i = 0; 
-                        for (; i < line.length - width; i++) {
-                            if (i + width/4 >= colNumber) {
-                                // the point of interest is now at a good place, horizontally
-                                break;
-                            }
-                        }
-                        colNumber -= i;
-    
-                        if (line.length - i > width) {
-                            line = line.slice(i, i + width) + " ...";
-                        } else {
-                            line = line.slice(i, i + width);
-                        }
-    
-                        if (i > 0) {
-                            line = "... " + line;
-                            colNumber += 4;
-                        }
-    
-                        const lineNumString = lineNumber.toString();
-                        
-                        writeErrorLine(`\n${lineNumString} | ${line}`);
-                        writeErrorLine(" ".padEnd(lineNumString.length + 3 + colNumber) + 
-                                        `${ANSI_CSI}31m^${ANSI_CSI}39m`);
-                    }
-                }
-            }
-
-        }
-
-        this.onProcessExit(proc, error);
     }
 
     handleSyscallMessage(pid, message) {
@@ -290,7 +189,7 @@ export class System {
             }
         }).catch((error) => {
             if (pid in this._processes) {
-                if (error instanceof SysError || error.name == "ProcessInterrupted" || error.name == "SysError") {
+                if (error instanceof SysError || error.name == "ProcessInterrupted" || error.name == "SysError" || error.name == "WaitError") {
                     console.debug(pid, `... ${syscall}() --> `, error);
                 } else {
                     console.error(pid, `... ${syscall}() --> `, error);

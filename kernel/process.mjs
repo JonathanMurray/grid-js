@@ -204,7 +204,7 @@ export class Process {
         const self = this;
         fileDescriptor.requestWrite((error) => {
             if (error != null) {
-                this._rejectPromise(promiseId, error);
+                this._rejectPromise(promiseId, new SysError(error));
                 return null;
             }
 

@@ -1,5 +1,6 @@
 "use strict";
 
+import { reportCrash } from "/lib/errors.mjs";
 import { writeln, write } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 import { TerminalGrid } from "/lib/terminal-grid.mjs";
@@ -7,7 +8,7 @@ import { assert, ASCII_END_OF_TEXT, ASCII_END_OF_TRANSMISSION, ASCII_BACKSPACE, 
 
 async function main(args) {
 
-    const programName = args[0] || "shell";
+    const childProgram = args[0] || "shell";
 
     const menubarItems = [
         {
@@ -54,7 +55,6 @@ async function main(args) {
     await syscall("configurePseudoTerminal", {resize: {width: terminalSize[0], height: terminalSize[1]}});
 
     let childPid;
-    let hasChildExited = false;
 
     await syscall("handleInterruptSignal");
 
@@ -67,7 +67,7 @@ async function main(args) {
     draw();
 
     try {
-        childPid = await syscall("spawn", {program: programName, fds: [ptySlave, ptySlave],
+        childPid = await syscall("spawn", {program: childProgram, fds: [ptySlave, ptySlave],
                                  pgid: "START_NEW"});
 
         await syscall("close", {fd: ptySlave});
@@ -137,10 +137,6 @@ async function main(args) {
 
 
         async function onkeydown(event) {
-
-            if (hasChildExited) {
-                return;
-            }
 
             const key = event.key;
             let sequence;
@@ -216,10 +212,16 @@ async function main(args) {
             if (text == "") {
                 // EOF from the PTY. We have to check if it's caused by the child exiting.
                 try {
-                    await syscall("waitForExit", {pid: childPid, nonBlocking: true});
-                    hasChildExited = true;
+                    const childExitValue = await syscall("waitForExit", {pid: childPid, nonBlocking: true});
+                    terminalGrid.insert(`Child exited with: ${childExitValue}\n`);
                     break;
                 } catch (e) {
+                    if (e["name"] == "WaitError") {
+                        for await (const line of reportCrash(childPid, childProgram, e["exitError"])) {
+                            terminalGrid.insert(line + "\n");
+                        }
+                        break;
+                    }
                     if (e["errno"] != "WOULDBLOCK") {
                         throw e;
                     }
