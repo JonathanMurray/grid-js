@@ -1,6 +1,6 @@
 "use strict";
 
-import { read, writeln, write, log, writeError, terminal } from "/lib/stdlib.mjs";
+import { read, writeln, write, log, writeError, terminal, readEntireFile } from "/lib/stdlib.mjs";
 import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_LINE_TO_RIGHT, ASCII_BACKSPACE, ASCII_END_OF_TRANSMISSION, ASCII_END_OF_TEXT, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_BACK, ANSI_CURSOR_FORWARD, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiBackgroundColor } from "/shared.mjs";
 
 import { syscall } from "/lib/sys.mjs";
@@ -11,9 +11,7 @@ let history;
 
 async function main(args) {
 
-    const configFd = await syscall("openFile", {fileName: "config.json"});
-    let config = await read(configFd);
-    await syscall("close", {fd: configFd});
+    let config = await readEntireFile("config.json");
     config = JSON.parse(config)
     const prompt = config.prompt;
 

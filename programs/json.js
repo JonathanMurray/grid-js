@@ -1,6 +1,6 @@
 "use strict";
 
-import { read, writeError, writeln } from "/lib/stdlib.mjs";
+import { read, readEntireFile, writeError, writeln } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
 
@@ -8,14 +8,12 @@ async function main(args) {
     let text = "";
     if (args.length >= 1) {
         const fileName = args[0];
-        let fd;
         try {
-            fd = await syscall("openFile", {fileName});
+            text = await readEntireFile(fileName);
         } catch (error) {
             await writeError(error["message"]);
             return;
         }
-        text = await syscall("read", {fd});
     } else {
         while (true) {
             let received = await read();

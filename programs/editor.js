@@ -1,6 +1,6 @@
 "use strict";
 
-import { createWindow, read, write, writeln } from "/lib/stdlib.mjs";
+import { createWindow, read, readEntireFile, write, writeln } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 import { assert } from "/shared.mjs";
 import { DocumentWithCursor } from "/lib/document-cursor.mjs";
@@ -43,9 +43,7 @@ class Editor {
         assert(fileName != null);
         let lines;
         try {
-            const fd = await syscall("openFile", {fileName});
-            const text = await syscall("read", {fd});
-            await syscall("close", {fd});
+            const text = await readEntireFile(fileName);
             lines = text.split(/\n|\r\n/);
         } catch (e) {
             console.warn("Couldn't open file: ", e);
