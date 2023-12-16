@@ -5,9 +5,10 @@ import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_L
 
 import { syscall } from "/lib/sys.mjs";
 import { reportCrash} from "/lib/errors.mjs";
+import { Readline } from "/lib/readline.mjs";
 
 let backgroundedJobs = [];
-let history;
+const readline = new Readline();
 
 async function main(args) {
 
@@ -15,115 +16,14 @@ async function main(args) {
     config = JSON.parse(config)
     const prompt = config.prompt;
 
-    await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
-
     await writeln(`Welcome. ${ANSI_CSI}36;45mType${ANSI_CSI}39;49m ${ANSI_CSI}31;44mhelp${ANSI_CSI}39;49m to get started.`);
-
-    history = new History();
-
-    async function getInputLine() {
-        let editLine = new TextWithCursor();
-        
-        const {skippedInput, position: [_line, startCol]} = await terminal.getCursorPosition();
-
-        function line() {
-            return `${ansiSetCursorHorizontalAbsolute(startCol)}${ANSI_ERASE_LINE_TO_RIGHT}${prompt}${editLine.text}`;
-        }
-
-        let received = skippedInput;
-
-        while (true) {
-
-            await write(line() + ansiSetCursorHorizontalAbsolute(startCol + prompt.length + editLine.cursor));
-
-            // If we read some input before getting the cursor position response, we use that instead of reading again
-            if (received == "") {
-                received = await read();
-            }
-
-            while (received != "") {
-                let matched;
-                let enter = false;
-                let ctrlD = false;
-                let ctrlC = false;
-                let up = false;
-                let down = false;
-                if (received[0] == ASCII_BACKSPACE) {
-                    editLine.backspace();
-                    matched = 1;
-                } else if (received[0] == "\n") {
-                    enter = true;
-                    matched = 1;
-                } else if (received[0] == ASCII_END_OF_TRANSMISSION) {
-                    ctrlD = true;
-                    matched = 1;
-                } else if (received[0] == ASCII_END_OF_TEXT) {
-                    ctrlC = true;
-                    matched = 1;
-                } else if (received[0] == ASCII_CARRIAGE_RETURN) {
-                    editLine.moveToStart();
-                    matched = 1;
-                } else if (received.startsWith(ANSI_CURSOR_BACK)) {
-                    editLine.moveLeft();
-                    matched = ANSI_CURSOR_BACK.length;
-                } else if (received.startsWith(ANSI_CURSOR_FORWARD)) {
-                    editLine.moveRight();
-                    matched = ANSI_CURSOR_FORWARD.length;
-                } else if (received.startsWith(ANSI_CURSOR_END_OF_LINE)) {
-                    editLine.moveToEnd();
-                    matched = ANSI_CURSOR_END_OF_LINE.length;
-                } else if (received.startsWith(ANSI_CURSOR_UP)) {
-                    up = true;
-                    matched = ANSI_CURSOR_UP.length;
-                } else if (received.startsWith(ANSI_CURSOR_DOWN)) {
-                    down = true;
-                    matched = ANSI_CURSOR_DOWN.length;
-                } else {
-                    editLine.insert(received[0]);
-                    matched = 1;
-                } 
-    
-                received = received.slice(matched);
-    
-                if (enter) {
-                    await write(line() + "\n");
-                    history.onEnter(editLine.text);
-                    const enteredLine = editLine.text;
-                    editLine.reset();
-                    return enteredLine;
-                } else if (ctrlC) {
-                    await write(line() + "^C\n");
-                    history.clearSelection();
-                    editLine.reset();
-                    return "";
-                } else if (ctrlD) {
-                    await write(line() + "^D\n");
-                    await syscall("exit");
-                    editLine.reset();
-                    return "";
-                } else if (up) {
-                    const selectedLine = history.onCursorUp();
-                    if (selectedLine != null) {
-                        editLine.text = selectedLine;
-                        editLine.moveToEnd();
-                    } else {
-                        editLine.reset();
-                    }
-                } else if (down) {
-                    const selectedLine = history.onCursorDown();
-                    if (selectedLine != null) {
-                        editLine.text = selectedLine;
-                        editLine.moveToEnd();
-                    } else {
-                        editLine.reset();
-                    }
-                }
-            }
-        }
-    }
     
     while (true) {
-        const inputLine = await getInputLine();
+        const inputLine = await readline.readLine(prompt);
+        if (inputLine === null) {
+            // EOF
+            return;
+        }
         await handleInputLine(inputLine);
     }
 }
@@ -287,6 +187,7 @@ const builtins = {
     },
 
     history: async function(args) {
+        const history = readline.history;
         for (let i = 0; i < history.lines.length; i++) {
             await writeln(`${i + 1}: ${history.lines[i]}`);
         }
@@ -294,9 +195,6 @@ const builtins = {
 }
 
 async function runJobInForeground(job) {
-
-    // Programs we spawn expect the terminal to be in line mode. If they want raw mode, they will configure it.
-    await syscall("configurePseudoTerminal", {mode: "LINE"});
 
     // Give the terminal to the new foreground group
     await syscall("setPtyForegroundPgid", {pgid: job.pgid});
@@ -317,7 +215,6 @@ async function runJobInForeground(job) {
 
     // Reclaim the terminal
     await syscall("setPtyForegroundPgid", {toSelf: true});
-    await syscall("configurePseudoTerminal", {mode: "CHARACTER"});
 }
 
 async function parse(line) {
@@ -400,53 +297,5 @@ class ParseError extends Error {
     constructor(message) {
         super(message);
         this.name = "ParseError";
-    }
-}
-
-class History {
-    constructor() {
-        this.lines = [];
-        this.selected = null;
-    }
-
-    onEnter(line) {
-        if (line != "") {
-            this.lines.push(line);
-        }
-        this.selected = null;
-    }
-    
-    clearSelection() {
-        this.selected = null;
-    }
-
-    onCursorUp() {
-        if (this.selected != null) {
-            this.selected -= 1;
-        } else {
-            this.selected = this.lines.length - 1;
-        }
-        if (this.selected >= 0) {
-            const line = this.lines[this.selected];
-            return line;
-        } else {
-            this.selected = null;
-            return null;
-        }
-    }
-
-    onCursorDown() {
-        if (this.selected != null) {
-            this.selected += 1;
-        } else {
-            this.selected = 0;
-        }
-        if (this.selected < this.lines.length) {
-            const line = this.lines[this.selected];
-            return line;
-        } else {
-            this.selected = null;
-            return null;
-        }
     }
 }
