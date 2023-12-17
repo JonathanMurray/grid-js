@@ -9,104 +9,8 @@ import { SysError, WaitError } from "./errors.mjs";
 import { Errno } from "./errors.mjs";
 import { FileOpenMode, FileType, assert, resolvePath } from "../shared.mjs";
 
-async function fetchProgram(programName) {
-    if (!programName.endsWith(".mjs")) {
-        programName += ".js";
-    }
-    const response = await fetch("programs/" + programName, {});
-    let code = await response.text();
-    code = "<script>\n" + code;
-    return code;
-}
 
 export class System {
-
-    static async init() {
-
-        const programs = [
-            "cat",
-            "countdown",
-            "crash",
-            "diagnose",
-            "demo",
-            "echo",
-            "editor", 
-            "debug",
-            "fibonacci",
-            "filepicker2",
-            "inspect",
-            "js",
-            "json",
-            "kill",
-            "launcher2",
-            "less",
-            "lines",
-            "ls", 
-            "plot", 
-            "ps", 
-            "shell", 
-            "snake", 
-            "sudoku", 
-            "taskman",
-            "terminal", 
-            "test", 
-            "top",
-            "time", 
-        ];
-        
-        const rootDir = new Directory();
-
-
-        const binDir = new Directory();
-        rootDir.createDirEntry("bin", binDir);
-
-        for (let program of programs) {
-            const text = await fetchProgram(program);    
-            program = program.replace(/(\.js)|(\.mjs)$/, "");
-            binDir.createDirEntry(program, new TextFile(text));
-        }
-
-        const devDir = new Directory();
-        rootDir.createDirEntry("dev", devDir);
-        devDir.createDirEntry("con", new BrowserConsoleFile());
-        devDir.createDirEntry("null", new NullFile());
-        devDir.createDirEntry("pipe", new PipeFile());
-
-        binDir.createDirEntry("empty", new TextFile("<script>\nfunction main() {}\n"));
-        binDir.createDirEntry("log", new TextFile( "<script>\nasync function main(args) { console.log(args); }\n"));
-
-        const customFiles = [
-            ["textfile", new TextFile("hello world\nthis is the second line. it is longer. it may even be long enough to have to break.\n and here is the third line after a white space.")],
-            ["short", new TextFile("hello world")],
-            ["config.json", new TextFile('{"prompt": "~ "}\n')],
-        ];
-  
-        for (const [name, file] of customFiles) {
-            rootDir.createDirEntry(name, file);
-        }
-
-        const subdir = new Directory();
-        subdir.createDirEntry("x", new TextFile("this file lives in a subdir"));
-        subdir.createDirEntry("inner", new Directory());
-        rootDir.createDirEntry("subdir", subdir);
-
-        const system = new System(rootDir);
-
-        const nullStream = system._addOpenFileDescription(system._lookupFile(["dev", "null"]), FileOpenMode.READ_WRITE, "/dev/null");
-        async function spawnFromUi(programPath) {
-            const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
-            await system._spawnProcess({programPath, args: [], fds, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});    
-        }
-        
-        system._windowManager = await WindowManager.init(spawnFromUi);
-        
-        const consoleStream = system._addOpenFileDescription(system._lookupFile(["dev", "con"]), FileOpenMode.READ_WRITE, "/dev/con");
-
-        await system._spawnProcess({programPath: "/bin/terminal", args: ["/bin/shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
-        //await system._spawnProcess({programPath: "/bin/editor", args: [], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
-        
-        return system;
-    }
 
     constructor(rootDir) {
         this._rootDir = rootDir;
@@ -124,8 +28,21 @@ export class System {
         this._nextUnnamedPipeId = 1;
     }
 
-    writeInputFromBrowser(text) {
+    async initWindowManager() {
+        assert(this._windowManager == null);
+
+        const nullStream = this._addOpenFileDescription(this._lookupFile(["dev", "null"]), FileOpenMode.READ_WRITE, "/dev/null");
+        const self = this;
+        async function spawnFromUi(programPath) {
+            const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
+            const ppid = 1; // init's child
+            await self._spawnProcess({programPath, args: [], fds, ppid, pgid: "START_NEW", sid: null, workingDirectory: "/"});    
+        }
         
+        this._windowManager = await WindowManager.init(spawnFromUi);
+    }
+
+    writeInputFromBrowser(text) {
         this._lookupFile(["dev", "con"]).addInputFromBrowser(text);
     }
 
@@ -148,8 +65,7 @@ export class System {
         return result;
     }
 
-    waitForOtherProcessToExit(pid, pidToWaitFor, nonBlocking) {
-        const proc = this.process(pid);
+    procWaitForOtherProcessToExit(proc, pidToWaitFor, nonBlocking) {
         const procToWaitFor = this.process(pidToWaitFor);
 
         function throwIfError(exitValue) {
@@ -172,7 +88,7 @@ export class System {
         //console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
         const self = this;
         return proc.waitForOtherToExit(procToWaitFor).then((exitValue) => {
-            console.log(`${pid} successfully waited for ${pidToWaitFor} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
+            console.log(`${proc.pid} successfully waited for ${pidToWaitFor} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
             delete self._processes[pidToWaitFor];
             //console.log("After deletion; processes: ", self.processes);
             return throwIfError(exitValue);
@@ -551,7 +467,3 @@ export class System {
         return pty.control(config);
     }
 }
-
-// To enable debugging in the browser console
-window["sys"] = await System.init();
-

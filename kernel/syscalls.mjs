@@ -178,7 +178,7 @@ export class Syscalls {
             throw new SysError(`invalid pid arg: ${JSON.stringify(pid)}`)
         }
 
-        return this.system.waitForOtherProcessToExit(proc.pid, pid, nonBlocking);
+        return this.system.procWaitForOtherProcessToExit(proc, pid, nonBlocking);
     }
 
     graphics(proc, args) {
