@@ -18,7 +18,7 @@ const CURSOR_RESIZE_CLASS_NAMES = {
 
 const WIN_MIN_SIZE = [200, 100];
 
-const PROGRAM_LAUNCHER = "launcher2";
+const PROGRAM_LAUNCHER = "/bin/launcher2";
 
 const CANVAS_SCALE = window.devicePixelRatio; // Change to 1 on retina screens to see blurry canvas.
 
@@ -584,7 +584,9 @@ export class WindowManager {
             findElement(dropdownWrapper, ".dropdown").style.left = `${buttonX - windowX}px`;
         }
 
-        const dockItem = await WindowManager.render("dock-item.mustache", {pid, programName: win.process.programName});
+        let programName = win.process.programName;
+        programName = programName.slice(programName.lastIndexOf("/") + 1);
+        const dockItem = await WindowManager.render("dock-item.mustache", {pid, programName});
         dockItem.addEventListener("mousedown", (event) => {
             this.setFocused({window: win});
 
@@ -692,10 +694,6 @@ class GraphicsSocketFile {
 
     getFileType() {
         return FileType.SOCKET;
-    }
-
-    getFileName() {
-        return `[graphicssocket]`;
     }
 
     pollRead(resolver) {

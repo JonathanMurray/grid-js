@@ -8,7 +8,7 @@ import { assert, ASCII_END_OF_TEXT, ASCII_END_OF_TRANSMISSION, ASCII_BACKSPACE, 
 
 async function main(args) {
 
-    const childProgram = args[0] || "shell";
+    const childProgramPath = args[0] || "/bin/shell";
 
     const menubarItems = [
         {
@@ -67,7 +67,7 @@ async function main(args) {
     draw();
 
     try {
-        childPid = await syscall("spawn", {program: childProgram, fds: [ptySlave, ptySlave],
+        childPid = await syscall("spawn", {programPath: childProgramPath, fds: [ptySlave, ptySlave],
                                  pgid: "START_NEW"});
 
         await syscall("close", {fd: ptySlave});
@@ -217,7 +217,7 @@ async function main(args) {
                     break;
                 } catch (e) {
                     if (e["name"] == "WaitError") {
-                        for await (const line of reportCrash(childPid, childProgram, e["exitError"])) {
+                        for await (const line of reportCrash(childPid, childProgramPath, e["exitError"])) {
                             terminalGrid.insert(line + "\n");
                         }
                         break;

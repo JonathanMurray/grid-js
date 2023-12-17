@@ -50,10 +50,6 @@ class _PtySlaveFile {
     getFileType() {
         return FileType.PTY;
     }
-
-    getFileName() {
-        return `[slave:${this._pty._sid}]`;
-    }
 }
 
 class _PtyMasterFile {
@@ -91,10 +87,6 @@ class _PtyMasterFile {
 
     getFileType() {
         return FileType.PTY;
-    }
-
-    getFileName() {
-        return `[master:${this._pty._sid}]`;
     }
 
     pollRead(resolver) {
@@ -426,14 +418,9 @@ class _Pipe {
 }
 
 export class NullFile {
-    constructor(fileName) {
-        this._fileName = fileName;
+    constructor() {
     }
     
-    getFileName() {
-        return this._fileName;
-    }
-
     requestWriteAt(_charIndex, writer) {
         writer();
         // The text is discarded
@@ -468,16 +455,11 @@ export class NullFile {
 
 export class BrowserConsoleFile {
 
-    constructor(fileName) {
-        this._fileName = fileName;
+    constructor() {
         this._input = "";
         this._waitingReaders = [];
     }
     
-    getFileName() {
-        return this._fileName;
-    }
-
     // This call is meant to originate from the user typing into the browser's dev console
     addInputFromBrowser(text) {
         this._input += text;
@@ -527,15 +509,10 @@ export class BrowserConsoleFile {
 }
 
 export class PipeFile {
-    constructor(fileName) {
-        this._fileName = fileName;
+    constructor() {
         this._pipe = new _Pipe();
     }
     
-    getFileName() {
-        return this._fileName;
-    }
-
     requestReadAt(_charIndex, args) {
         this._pipe.requestRead(args);
     }
@@ -582,13 +559,9 @@ export class PipeFile {
 }
 
 export class TextFile {
-    constructor(fileName, text) {
-        this._fileName = fileName;
+    // TODO check all callsites
+    constructor(text) {
         this.text = text;
-    }
-
-    getFileName() {
-        return this._fileName;
     }
 
     requestWriteAt(charIndex, writer) {
@@ -627,20 +600,59 @@ export class TextFile {
     }
 }
 
+export class Directory {
+    constructor() {
+        this._entries = {};
+    }
+
+    createDirEntry(name, file) {
+        assert(name != null && !name.includes("/"));
+        this._entries[name] = file;
+
+        if (file instanceof Directory) {
+            file._entries["."] = file;
+            file._entries[".."] = this;
+        }
+    }
+
+    dirEntries() {
+        return this._entries;
+    }
+
+    open() {
+        // relevant for pipes
+    }
+
+    close() {
+        // relevant for pipes
+    }
+
+    getStatus() {
+        return {
+            directory: {}
+        };
+    }
+
+    getFileType() {
+        return FileType.DIRECTORY;
+    }
+}
+
 export const FileOpenMode = {
     READ: "READ",
     WRITE: "WRITE",
     READ_WRITE: "READ_WRITE",
 }
 
-
 /** "file" in Linux */
 export class OpenFileDescription {
-    constructor(system, id, file, mode) {
+    constructor(system, id, file, mode, filePath) {
         this._system = system;
         this._id = id;
         this._file = file;
         this._mode = mode;
+        this._filePath = filePath;
+
         this._refCount = 1;
         this._charIndex = 0;
 
@@ -713,8 +725,8 @@ export class OpenFileDescription {
         return this._file.getFileType();
     }
 
-    getFileName() {
-        return this._file.getFileName();
+    getFilePath() {
+        return this._filePath;
     }
 
     pollRead(resolver) {
@@ -765,8 +777,8 @@ export class FileDescriptor {
         return this._openFileDescription.getFileType();
     }
 
-    getFileName() {
-        return this._openFileDescription.getFileName();
+    getFilePath() {
+        return this._openFileDescription.getFilePath();
     }
 
     pollRead(resolver) {

@@ -1,7 +1,7 @@
 "use strict";
 
 import { read, writeln, write, log, writeError, terminal, readEntireFile } from "/lib/stdlib.mjs";
-import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_LINE_TO_RIGHT, ASCII_BACKSPACE, ASCII_END_OF_TRANSMISSION, ASCII_END_OF_TEXT, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_BACK, ANSI_CURSOR_FORWARD, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiBackgroundColor } from "/shared.mjs";
+import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_LINE_TO_RIGHT, ASCII_BACKSPACE, ASCII_END_OF_TRANSMISSION, ASCII_END_OF_TEXT, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_BACK, ANSI_CURSOR_FORWARD, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiBackgroundColor, ansiColor } from "/shared.mjs";
 
 import { syscall } from "/lib/sys.mjs";
 import { reportCrash} from "/lib/errors.mjs";
@@ -12,13 +12,15 @@ const readline = new Readline();
 
 async function main(args) {
 
-    let config = await readEntireFile("config.json");
+    let config = await readEntireFile("/config.json");
     config = JSON.parse(config)
-    const prompt = config.prompt;
+    let prompt = config.prompt;
 
     await writeln(`Welcome. ${ANSI_CSI}36;45mType${ANSI_CSI}39;49m ${ANSI_CSI}31;44mhelp${ANSI_CSI}39;49m to get started.`);
     
     while (true) {
+        const workingDir = await syscall("getWorkingDirectory");
+        prompt = ansiColor("{", 35) + workingDir + ansiColor("}", 35) + " ";
         const inputLine = await readline.readLine(prompt);
         if (inputLine === null) {
             // EOF
@@ -77,7 +79,7 @@ async function handleInputLine(input) {
                 if (redirectOutputTo === null) {
                     stdout = shellStdout;
                 } else {
-                    const outputFileFd = await syscall("openFile", {fileName: redirectOutputTo, createIfNecessary: true});
+                    const outputFileFd = await syscall("openFile", {filePath: redirectOutputTo, createIfNecessary: true});
                     stdout = outputFileFd;
                 }
             } else {
@@ -86,7 +88,7 @@ async function handleInputLine(input) {
                 stdout = pipe.writerId;
             }
 
-            const {program, args} = commands[i];
+            const {programPath, args} = commands[i];
 
             if (i == 0) {
                 // The first process in the pipeline becomes process group leader.
@@ -95,9 +97,10 @@ async function handleInputLine(input) {
 
             let pid;
             try {
-                pid = await syscall("spawn", {program, args, fds: [stdin, stdout], pgid});
+                pid = await syscall("spawn", {programPath, args, fds: [stdin, stdout], pgid});
             } catch (e) {
                 await writeError(e["message"]);
+                throw e; //TODO
                 return;
             }
 
@@ -111,7 +114,7 @@ async function handleInputLine(input) {
                 await syscall("close", {fd: stdout});
             }
 
-            jobEntries.push({pid, program});
+            jobEntries.push({pid, programPath});
 
             if (i == 0) {
                 // All remaining processes in the pipeline join the newly created process group.
@@ -137,10 +140,10 @@ const builtins = {
             await writeln(`  ${name}`);
         }
 
-        const fileNames = await syscall("listFiles");
+        const filePaths = await syscall("listFiles", {path: "/"});
         await writeln(ansiBackgroundColor("Files:", 44));
-        for (let fileName of fileNames) {
-            await write(`${fileName}  `);
+        for (let filePath of filePaths) {
+            await write(`${filePath}  `);
         }
         await writeln("");
     },
@@ -163,6 +166,20 @@ const builtins = {
 
     clear: async function(args) {
         await terminal.clear();
+    },
+
+    cd: async function(args) {
+        const path = args[0] || "/";
+        try {
+            await syscall("changeWorkingDirectory", {path})
+        } catch (e) {
+            writeError(e["message"]);
+        }
+    },
+
+    pwd: async function(args) {
+        const path = await syscall("getWorkingDirectory");
+        await writeln(path);
     },
 
     fg: async function(args) {
@@ -204,7 +221,7 @@ async function runJobInForeground(job) {
             await syscall("waitForExit", {pid});
         } catch (e) {
             if (e["name"] == "WaitError") {
-                for await (const line of reportCrash(pid, job.procs[i].program, e["exitError"])) {
+                for await (const line of reportCrash(pid, job.procs[i].programPath, e["exitError"])) {
                     writeln(line);
                 }
             } else {
@@ -225,7 +242,7 @@ async function parse(line) {
     let builtin = null;
     let redirectOutputTo = null;
 
-    const fileNames = await syscall("listFiles");
+    const filePaths = await syscall("listFiles", {path: "/bin"});
 
     let command = null;
     let args = [];
@@ -234,11 +251,11 @@ async function parse(line) {
         if (command == null && builtin == null) {
             if (word in builtins) {
                 builtin = {name: word, args: null}
-            } else if (fileNames.includes(word)) {
+            } else if (filePaths.includes(word)) {
                 if (pipeline == null) {
                     pipeline = {commands: [], runInBackground: false};
                 }
-                command = {program: word, args: null};
+                command = {programPath: `/bin/${word}`, args: null};
             } else {
                 throw new ParseError(`invalid command: ${word}`);
             }
@@ -264,8 +281,8 @@ async function parse(line) {
                     throw new ParseError("invalid syntax: at most one > is allowed");
                 }
 
-                const fileName = remainingWords.shift();
-                redirectOutputTo = fileName;
+                const filePath = remainingWords.shift();
+                redirectOutputTo = filePath;
             } else {
                 args.push(word);
             }

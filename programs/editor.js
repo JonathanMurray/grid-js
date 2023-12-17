@@ -1,6 +1,6 @@
 "use strict";
 
-import { createWindow, read, readEntireFile, write, writeln } from "/lib/stdlib.mjs";
+import { createWindow, read, readEntireFile, write, writeError, writeln } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 import { assert } from "/shared.mjs";
 import { DocumentWithCursor } from "/lib/document-cursor.mjs";
@@ -9,7 +9,7 @@ import { Grid } from "/lib/grid.mjs";
 
 class Editor {
 
-    constructor(canvas, fileName, lines) {
+    constructor(canvas, filePath, lines) {
         this._cellSize = [10, 20];
         this._gridSize = [Math.floor(canvas.width / this._cellSize[0]), Math.floor(canvas.height / this._cellSize[1])];
 
@@ -21,7 +21,7 @@ class Editor {
         this._yOffset = 0;
         this._doc.cursorLine = 0;
 
-        this._fileName = fileName;
+        this._filePath = filePath;
         this._hasUnsavedChanges = false;
 
         this._waitingForFilePicker = false;
@@ -30,7 +30,7 @@ class Editor {
     }
 
     async _saveToFile() {
-        const fd = await syscall("openFile", {fileName: this._fileName});
+        const fd = await syscall("openFile", {filePath: this._filePath});
         const text = this._doc.lines.join("\n");
         await syscall("write", {fd, text});
         await syscall("setFileLength", {fd, length: text.length});
@@ -39,17 +39,17 @@ class Editor {
         this._update();
     }
 
-    async _openFile(fileName) {
-        assert(fileName != null);
+    async _openFile(filePath) {
+        assert(filePath != null);
         let lines;
         try {
-            const text = await readEntireFile(fileName);
+            const text = await readEntireFile(filePath);
             lines = text.split(/\n|\r\n/);
         } catch (e) {
             console.warn("Couldn't open file: ", e);
             return;
         }
-        this._fileName = fileName;
+        this._filePath = filePath;
         this._hasUnsavedChanges = false;
         this._doc = new DocumentWithCursor(lines);
         this._update();
@@ -100,7 +100,7 @@ class Editor {
             this._yOffset = cursorRow - showDocRows + 1;
         }
         
-        const statusLines = [`=${this._fileName}= ${this._hasUnsavedChanges ? "*" : ""}`, ""];
+        const statusLines = [`=${this._filePath}= ${this._hasUnsavedChanges ? "*" : ""}`, ""];
         const statusMargin = leftMargin + 1;
         for (let y = 0; y < topMargin; y++) {
             for (let x = 0; x < this._gridSize[0]; x++) {
@@ -189,7 +189,7 @@ class Editor {
 
     async _pickFileToOpen() {
         this._waitingForFilePicker = true;
-        const pid = await syscall("spawn", {program: "filepicker2"});
+        const pid = await syscall("spawn", {programPath: "/bin/filepicker2"});
         console.log("WAITING");
         const exitValue = await syscall("waitForExit", {pid});
         this._waitingForFilePicker = false;
@@ -268,11 +268,11 @@ class Editor {
 async function main(args) {
 
 
-    let fileName;
+    let filePath;
     if (args.length > 0) {
-        fileName = args[0];
+        filePath = args[0];
     } else {
-        fileName = "tmp";
+        filePath = "tmp";
     }
 
     const menubarItems = [
@@ -301,12 +301,19 @@ async function main(args) {
 
     const {socketFd, canvas} = await createWindow("Editor", [600, 400], {menubarItems});
 
-    const fd = await syscall("openFile", {fileName, createIfNecessary: true});
+    console.log("opening: ", filePath);
+    let fd;
+    try {
+        fd = await syscall("openFile", {filePath, createIfNecessary: true});
+    } catch (e) {
+        writeError(e["message"]);
+        return;
+    }
     const text = await syscall("read", {fd});
     await syscall("close", {fd});
     const lines = text.split(/\n|\r\n/);
 
-    const app = new Editor(canvas, fileName, lines);
+    const app = new Editor(canvas, filePath, lines);
 
     while (true) {
         const received = await read(socketFd);

@@ -38,6 +38,10 @@ export function ansiBackgroundColor(text, color) {
     return `${ANSI_CSI}${color}m${text}${ANSI_CSI}49m`
 }
 
+export function ansiColor(text, color) {
+    return `${ANSI_CSI}${color}m${text}${ANSI_CSI}39m`
+}
+
 /** Cursor Position Report (response)*/
 export function cursorPositionReport(line, col) {
     return `${ANSI_CSI}${line};${col}R`;
@@ -127,4 +131,5 @@ export const FileType = {
     PIPE: "PIPE",
     TEXT: "TEXT",
     SOCKET: "SOCKET",
+    DIRECTORY: "DIRECTORY",
 }

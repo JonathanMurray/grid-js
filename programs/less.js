@@ -13,8 +13,8 @@ async function main(args) {
 
     try {
         if (args.length >= 1) {
-            const fileName = args[0];
-            const fd = await syscall("openFile", {fileName});
+            const filePath = args[0];
+            const fd = await syscall("openFile", {filePath});
             await run(fd);
         } else {
             const stdin = 0;

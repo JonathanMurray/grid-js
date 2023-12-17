@@ -6,9 +6,9 @@ import { syscall } from "/lib/sys.mjs";
 async function main(args) {
     let fd;
     if (args.length >= 1) {
-        const fileName = args[0];
+        const filePath = args[0];
         try {
-            fd = await syscall("openFile", {fileName});
+            fd = await syscall("openFile", {filePath});
         } catch (error) {
             await writeError(error["message"]);
             return;

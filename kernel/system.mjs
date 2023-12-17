@@ -1,13 +1,14 @@
 "use strict";
 
 
-import {TextFile, BrowserConsoleFile, NullFile, PipeFile, FileOpenMode, OpenFileDescription, FileDescriptor, PseudoTerminal} from "./io.mjs";
+import {TextFile, BrowserConsoleFile, NullFile, PipeFile, FileOpenMode, OpenFileDescription, FileDescriptor, PseudoTerminal, Directory} from "./io.mjs";
 import { WindowManager } from "./window-manager.mjs";
 import { Process } from "./process.mjs";
 import { Syscalls } from "./syscalls.mjs";
 import { SysError, WaitError } from "./errors.mjs";
 import { Errno } from "./errors.mjs";
-import { ANSI_CSI, assert } from "../shared.mjs";
+import { ANSI_CSI, FileType, assert } from "../shared.mjs";
+import { Direction } from "/lib/gui.mjs";
 
 async function fetchProgram(programName) {
     if (!programName.endsWith(".mjs")) {
@@ -53,50 +54,63 @@ export class System {
             "top",
             "time", 
         ];
-        let files = {};
+        
+        const rootDir = new Directory();
+
+
+        const binDir = new Directory();
+        rootDir.createDirEntry("bin", binDir);
+
         for (let program of programs) {
             const text = await fetchProgram(program);    
             program = program.replace(/(\.js)|(\.mjs)$/, "");
-            files[program] = new TextFile(program, text);
+            binDir.createDirEntry(program, new TextFile(text));
         }
 
+        const devDir = new Directory();
+        rootDir.createDirEntry("dev", devDir);
+        devDir.createDirEntry("con", new BrowserConsoleFile());
+        devDir.createDirEntry("null", new NullFile());
+        devDir.createDirEntry("pipe", new PipeFile());
+
+        binDir.createDirEntry("empty", new TextFile("<script>\nfunction main() {}\n"));
+        binDir.createDirEntry("log", new TextFile( "<script>\nasync function main(args) { console.log(args); }\n"));
+
         const customFiles = [
-            new TextFile("textfile", "hello world\nthis is the second line. it is longer. it may even be long enough to have to break.\n and here is the third line after a white space."),
-            new TextFile("short", "hello world"),
-            new TextFile("empty", "<script>\nfunction main() {}\n"),
-            new TextFile("log", "<script>\nasync function main(args) { console.log(args); }\n"),
-            new TextFile("config.json", '{"prompt": "~ "}\n'),
-            new BrowserConsoleFile("con"),
-            new NullFile("null"),
-            new PipeFile("p"),
+            ["textfile", new TextFile("hello world\nthis is the second line. it is longer. it may even be long enough to have to break.\n and here is the third line after a white space.")],
+            ["short", new TextFile("hello world")],
+            ["config.json", new TextFile('{"prompt": "~ "}\n')],
         ];
-        
-        for (const f of customFiles) {
-            files[f.getFileName()] = f;
+  
+        for (const [name, file] of customFiles) {
+            rootDir.createDirEntry(name, file);
         }
-        
-        const system = new System(files);
-        
-        const nullStream = system._addOpenFileDescription(files["null"], FileOpenMode.READ_WRITE);
-        
-        async function spawnFromUi(programName) {
-            
+
+        const subdir = new Directory();
+        subdir.createDirEntry("x", new TextFile("this file lives in a subdir"));
+        rootDir.createDirEntry("subdir", subdir);
+
+        const system = new System(rootDir);
+
+        const nullStream = system._addOpenFileDescription(system._lookupFile(["dev", "null"]), FileOpenMode.READ_WRITE, "/dev/null");
+        async function spawnFromUi(programPath) {
             const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
-            await system._spawnProcess({programName, args: [], fds, ppid: null, pgid: "START_NEW", sid: null});    
+            await system._spawnProcess({programPath, args: [], fds, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});    
         }
         
         system._windowManager = await WindowManager.init(spawnFromUi);
         
-        const consoleStream = system._addOpenFileDescription(files["con"], FileOpenMode.READ_WRITE);
-        await system._spawnProcess({programName: "terminal", args: ["shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
+        const consoleStream = system._addOpenFileDescription(system._lookupFile(["dev", "con"]), FileOpenMode.READ_WRITE, "/dev/con");
+        await system._spawnProcess({programPath: "/bin/terminal", args: ["/bin/shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
         
-        //await system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null});
+        //await system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
         
         return system;
     }
 
-    constructor(files) {
-        this._fileSystem = files;
+    constructor(rootDir) {
+        this._rootDir = rootDir;
+
         this._syscalls = new Syscalls(this);
         this._nextPid = 1;
         this._processes = {};
@@ -111,7 +125,8 @@ export class System {
     }
 
     writeInputFromBrowser(text) {
-        this._fileSystem["con"].addInputFromBrowser(text);
+        
+        this._lookupFile(["dev", "con"]).addInputFromBrowser(text);
     }
 
     async call(syscall, args, pid) {
@@ -176,10 +191,10 @@ export class System {
     handleSyscallMessage(pid, message) {
         const {syscall, arg, sequenceNum} = message.data.syscall;
 
-        console.debug(pid, `${syscall}(${JSON.stringify(arg)}) ...`);
+        console.debug(pid, `[${pid}] ${syscall}(${JSON.stringify(arg)}) ...`);
         this.call(syscall, arg, pid).then((result) => {
             if (pid in this._processes) {
-                console.debug(pid, `... ${syscall}() --> ${JSON.stringify(result)}`);
+                console.debug(pid, `... [${pid}] ${syscall}() --> ${JSON.stringify(result)}`);
                 let transfer = [];
                 if (result != null && typeof result == "object" && "canvas" in result && result.canvas instanceof OffscreenCanvas) {
                     // Ownership of the canvas needs to be transferred to the worker
@@ -191,31 +206,56 @@ export class System {
         }).catch((error) => {
             if (pid in this._processes) {
                 if (error instanceof SysError || error.name == "ProcessInterrupted" || error.name == "SysError" || error.name == "WaitError") {
-                    console.debug(pid, `... ${syscall}() --> `, error);
+                    console.debug(pid, `... [${pid}] ${syscall}() --> `, error);
                 } else {
-                    console.error(pid, `... ${syscall}() --> `, error);
+                    console.error(pid, `... [${pid}] ${syscall}() --> `, error);
                 }
                 this._processes[pid].worker.postMessage({syscallResult: {error, sequenceNum}});
             }
         });
     }
 
-    async _spawnProcess({programName, args, fds, ppid, pgid, sid}) {
+    _lookupFile(parts) {
+        assert(Array.isArray(parts));
+        if (parts.length == 0) {
+            return this._rootDir;
+        }
+        let file = this._rootDir;
+
+        parts = [...parts]; // Don't modify the input
+        while (parts.length > 0) {
+            console.log("PARTS: ", parts);
+            const name = parts.shift();
+         
+            file = file.dirEntries()[name];
+
+            if (file == null && parts.length > 0) {
+                throw new SysError(`no such directory: '${name}'`);
+            }
+        }
+
+        return file;
+    }
+
+    async _spawnProcess({programPath, args, fds, ppid, pgid, sid, workingDirectory}) {
         assert(args != undefined);
-        const file = this._fileSystem[programName];
+
+        // We assume that programPath is absolute
+        const parts = System._resolvePath("/", programPath);
+        const file = this._lookupFile(parts);
 
         if (file === undefined) {
-            throw new SysError("no such program file: " + programName);
+            throw new SysError("no such program file: " + programPath);
         }
 
         if (!(file instanceof TextFile)) {
-            throw new SysError("file is not runnable: " + programName);
+            throw new SysError("file is not runnable: " + programPath);
         }
 
         const lines = file.text.split("\n");
 
         if (lines[0] !== "<script>") {
-            throw new SysError("file is not runnable: " + programName);
+            throw new SysError("file is not runnable: " + programPath);
         }
 
         const code = lines.slice(1).join("\n");
@@ -227,11 +267,11 @@ export class System {
             sid = pid;  // The new process becomes leader of a new session
         }
 
-        const worker = new Worker("kernel/process-worker.mjs", {name: `[${pid}] ${programName}`, type: "module"});
-        const proc = new Process(worker, code, programName, args, pid, fds, ppid, pgid, sid);
+        const worker = new Worker("kernel/process-worker.mjs", {name: `[${pid}] ${programPath}`, type: "module"});
+        const proc = new Process(worker, code, programPath, args, pid, fds, ppid, pgid, sid, workingDirectory);
         this._processes[pid] = proc;
 
-        console.log(`[${pid}] NEW PROCESS (${programName}). parent=${ppid}, group=${pgid}, session=${sid}`);
+        console.log(`[${pid}] NEW PROCESS (${programPath}). parent=${ppid}, group=${pgid}, session=${sid}`);
 
         // Since the worker initializes asynchronously (due to using modules), we await an init message from it
         // (at which point we know that it's listening for messages) before we send anything to it.
@@ -244,14 +284,14 @@ export class System {
         await isWorkerInitialized;
 
         worker.onmessage = (msg) => this.handleMessageFromWorker(pid, msg);
-        worker.postMessage({startProcess: {programName, code, args, pid}});
+        worker.postMessage({startProcess: {programName: programPath, code, args, pid}});
 
         return pid;
     }
 
     async procSetupGraphics(proc, title, size, resizable, menubarItems) {
         const {socketFile, canvas} = await this._windowManager.setupGraphics(proc, title, size, resizable, menubarItems);
-        const fileDescriptor = this._addOpenFileDescription(socketFile, FileOpenMode.READ_WRITE);
+        const fileDescriptor = this._addOpenFileDescription(socketFile, FileOpenMode.READ_WRITE, "[graphicssocket]");
         const socketFd = proc.addFileDescriptor(fileDescriptor);
         return {socketFd, canvas};
     }
@@ -283,7 +323,7 @@ export class System {
             const proc = this.process(pid);
             let fds = {};
             for (const [fd, value] of Object.entries(proc.fds)) {
-                fds[fd] = {type: value.getFileType(), name: value.getFileName()};
+                fds[fd] = {type: value.getFileType(), name: value.getFilePath()};
             }
             procs.push({
                 pid, 
@@ -301,53 +341,107 @@ export class System {
         return procs;
     }
 
-    procOpenFile(proc, fileName, createIfNecessary) {
-        let file = this._fileSystem[fileName];
+    procOpenFile(proc, path, createIfNecessary) {
+        const parts = System._resolvePath(proc.workingDirectory, path);
+        let file = this._lookupFile(parts);
         if (file == undefined) {
             if (createIfNecessary) {
-                file = new TextFile(fileName, "");
-                this._fileSystem[fileName] = file;
+                console.log("Create file since necessary... Parts: ", parts);
+                const directory = this._lookupFile(parts.slice(0, parts.length - 1));
+                console.log("dir: ", directory);
+                assert(directory != null);
+                const fileName = parts[parts.length - 1];
+                console.log("File name: ", fileName);
+                file = new TextFile("");
+                directory.createDirEntry(fileName, file);
             } else {
-                throw new SysError("no such file");
+                throw new SysError(`no such file: '${path}'`);
             }
         }
 
-        const fileDescriptor = this._addOpenFileDescription(file, FileOpenMode.READ_WRITE);
+        const fileDescriptor = this._addOpenFileDescription(file, FileOpenMode.READ_WRITE, path);
         const fd = proc.addFileDescriptor(fileDescriptor);
         return fd;
     }
 
-    _addOpenFileDescription(file, mode) {
+    _addOpenFileDescription(file, mode, filePath) {
         assert(file != null);
         const id = this._nextOpenFileDescriptionId ++;
-        const openFileDescription = new OpenFileDescription(this, id, file, mode);
+        const openFileDescription = new OpenFileDescription(this, id, file, mode, filePath);
         this.openFileDescriptions[id] = openFileDescription;
         return new FileDescriptor(openFileDescription);
     }
 
     procCreateUnnamedPipe(proc) {
         const id = this._nextUnnamedPipeId ++;
-        const pipeFile = new PipeFile(`[pipe:${id}]`);
-        const reader = this._addOpenFileDescription(pipeFile, FileOpenMode.READ);
-        const writer = this._addOpenFileDescription(pipeFile, FileOpenMode.WRITE);
+        const pipeFile = new PipeFile();
+        const filePath = `[pipe:${id}]`;
+        const reader = this._addOpenFileDescription(pipeFile, FileOpenMode.READ, filePath);
+        const writer = this._addOpenFileDescription(pipeFile, FileOpenMode.WRITE, filePath);
         const readerId = proc.addFileDescriptor(reader);
         const writerId = proc.addFileDescriptor(writer);
         return {readerId, writerId};
     }
 
-    getFileStatus(fileName) {
-        const file = this._fileSystem[fileName];
+    getFileStatus(filePath) {
+        const file = this._lookupFile(filePath);
+
         if (file === undefined) {
-            throw new SysError("no such file");
+            throw new SysError(`no such file: '${filePath}'`);
         }
         return file.getStatus();
     }
 
-    listFiles() {
-        return Object.keys(this._fileSystem);
+    procChangeWorkingDirectory(proc, path) {
+        const parts = System._resolvePath(proc.workingDirectory, path);
+        const file = this._lookupFile(parts);
+        assert(file.getFileType() === FileType.DIRECTORY);
+        proc.workingDirectory = "/" + parts.join("/");
     }
 
-    procSpawn(proc, programName, args, fds, pgid) {
+    static _resolvePath(workingDirectory, path) {
+
+        assert(typeof workingDirectory === "string" && workingDirectory.startsWith("/"));
+        let parts;
+        if (path.startsWith("/")) {
+            // absolute path, ignore workingDirectory
+            parts = path.split("/");
+        } else if (workingDirectory.endsWith("/")) {
+            parts = workingDirectory.split("/").concat(path.split("/"));
+        } else {
+            parts = workingDirectory.split("/").concat(path.split("/"));
+        }
+
+        let resolvedParts = [];
+        for (const part of parts) {
+            if (part == ".") {
+                // link to self
+            } else if (part == "..") {
+                // link to parent
+                resolvedParts.pop();
+            } else if (part.length > 0) {
+                resolvedParts.push(part);
+            }
+        }
+
+        console.log(`RESOLVED '${path}' -> ${resolvedParts}`); //TODO
+
+        return resolvedParts;
+    }
+
+    procListFiles(proc, path) {
+        assert(path != null);
+        const parts = System._resolvePath(proc.workingDirectory, path);
+
+        const file = this._lookupFile(parts);
+        if (file.getFileType() === FileType.DIRECTORY) {
+            return Object.keys(file.dirEntries()); //.map(name => System._resolvePath(path, name));
+        } else {
+            return ["/" + parts.join("/")];
+        }
+    }
+
+    procSpawn(proc, programPath, args, fds, pgid) {
 
         let fileDescriptors = {};
         try {
@@ -378,8 +472,11 @@ export class System {
     
             // Join the parent's session
             const sid = proc.sid;
-            
-            return this._spawnProcess({programName, args, fds: fileDescriptors, ppid: proc.pid, pgid, sid});
+
+            // Inherit the parent's working directory
+            const workingDirectory = proc.workingDirectory;
+
+            return this._spawnProcess({programPath, args, fds: fileDescriptors, ppid: proc.pid, pgid, sid, workingDirectory});
         } catch (e) {
 
             // Normally, a process closes its file descriptors upon exit, but here we failed to spawn the process.
@@ -456,10 +553,10 @@ export class System {
         }
 
         const pty = new PseudoTerminal(this, proc.sid);
-        this._pseudoTerminals[proc.sid] = pty; // TODO
+        this._pseudoTerminals[proc.sid] = pty;
 
-        const master = this._addOpenFileDescription(pty.master, FileOpenMode.READ_WRITE);
-        const slave = this._addOpenFileDescription(pty.slave, FileOpenMode.READ_WRITE);
+        const master = this._addOpenFileDescription(pty.master, FileOpenMode.READ_WRITE, `[master:${proc.sid}]`);
+        const slave = this._addOpenFileDescription(pty.slave, FileOpenMode.READ_WRITE, `[slave:${proc.sid}]`);
 
         const masterId = proc.addFileDescriptor(master);
         const slaveId = proc.addFileDescriptor(slave);
@@ -472,7 +569,7 @@ export class System {
         if (pty == undefined) {
             throw new SysError("no pseudoterminal connected to session");
         }
-        const slave = this._addOpenFileDescription(pty.openNewSlave(), FileOpenMode.READ_WRITE);
+        const slave = this._addOpenFileDescription(pty.openNewSlave(), FileOpenMode.READ_WRITE, `[slave:${proc.sid}]`);
         const slaveId = proc.addFileDescriptor(slave);
         return slaveId;
     }

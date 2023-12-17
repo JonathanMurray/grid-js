@@ -113,16 +113,16 @@ export class Syscalls {
     }
 
     openFile(proc, args) {
-        let {fileName, createIfNecessary} = validateSyscallArgs(args, ["fileName"], ["createIfNecessary"]);
+        let {filePath, createIfNecessary} = validateSyscallArgs(args, ["filePath"], ["createIfNecessary"]);
         if (createIfNecessary == undefined) {
             createIfNecessary = false;
         }
-        return this.system.procOpenFile(proc, fileName, createIfNecessary);
+        return this.system.procOpenFile(proc, filePath, createIfNecessary);
     }
 
     getFileStatus(proc, args) {
-        let {fileName} = validateSyscallArgs(args, ["fileName"]);
-        return this.system.getFileStatus(fileName);
+        let {filePath} = validateSyscallArgs(args, ["filePath"]);
+        return this.system.getFileStatus(filePath);
     }
 
     seekInFile(proc, args) {
@@ -145,18 +145,28 @@ export class Syscalls {
         return proc.pollRead(fds, timeoutMillis);
     }
 
+    changeWorkingDirectory(proc, args) {
+        const {path} = validateSyscallArgs(args, ["path"]);
+        return this.system.procChangeWorkingDirectory(proc, path);
+    }
+
+    getWorkingDirectory(proc, args) {
+        return proc.workingDirectory;
+    }
+
     listFiles(proc, args) {
-        return this.system.listFiles();
+        const {path} = validateSyscallArgs(args, ["path"]);
+        return this.system.procListFiles(proc, path);
     }
 
     spawn(proc, args) {
-        let {program, args: programArgs, fds, pgid} = validateSyscallArgs(args, ["program"], ["args", "fds", "pgid"]);
+        let {programPath, args: programArgs, fds, pgid} = validateSyscallArgs(args, ["programPath"], ["args", "fds", "pgid"]);
 
         if (programArgs == undefined) {
             programArgs = [];
         }
 
-        return this.system.procSpawn(proc, program, programArgs, fds, pgid);
+        return this.system.procSpawn(proc, programPath, programArgs, fds, pgid);
     }
 
     waitForExit(proc, args) {

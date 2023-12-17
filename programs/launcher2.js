@@ -16,7 +16,7 @@ async function main(args) {
         "taskman": "Monitor running processes",
         "demo": "(Showcase of GUI capabilities)",
     };
-    const fileNames = Object.keys(descriptions);
+    const filePaths = Object.keys(descriptions);
 
     const ctx = canvas.getContext("2d");
     
@@ -28,15 +28,15 @@ async function main(args) {
 
     const selectionList = new SelectionList(
         (itemIdx) => {
-            picked = fileNames[itemIdx];
+            picked = filePaths[itemIdx];
             titleElement.setText(picked);
             descriptionElement.setText(descriptions[picked]);
         },
         {expandHor: Expand.YES}
     );
   
-    for (const fileName of fileNames) {
-        selectionList.addItem(new Container({padding: [5, 0]}).addChild(new TextContainer(ctx, fileName)));
+    for (const filePath of filePaths) {
+        selectionList.addItem(new Container({padding: [5, 0]}).addChild(new TextContainer(ctx, filePath)));
     }
 
     const titleElement = new TextContainer(ctx, "", {color: "magenta", font: "bold 20px monospace"});
@@ -61,7 +61,7 @@ async function main(args) {
 
     async function maybeLaunch() {
         if (picked != null) {
-            await syscall("spawn", {program: picked, pgid: "START_NEW"});
+            await syscall("spawn", {programPath: `/bin/${picked}`, pgid: "START_NEW"});
             await syscall("exit");
         }
     }

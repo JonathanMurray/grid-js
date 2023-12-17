@@ -10,7 +10,7 @@ export const SignalBehaviour = {
 
 export class Process {
 
-    constructor(worker, code, programName, args, pid, fds, ppid, pgid, sid) {
+    constructor(worker, code, programName, args, pid, fds, ppid, pgid, sid, workingDirectory) {
         assert(fds != undefined);
         assert(Number.isInteger(pid));
         assert(Number.isInteger(pgid));
@@ -23,6 +23,7 @@ export class Process {
         this.pgid = pgid // Process group ID
         this.sid = sid; // Session ID
         this.args = args;
+        this.workingDirectory = workingDirectory;
         
         /** Maps fd (int) to FileDescriptor
          * By convention, 0=stdin, 1=stdout
@@ -93,13 +94,20 @@ export class Process {
     onSyscallEnd() {
         this._forgetOldSyscallTimestamps();
         const nowMillis = Date.now();
-        const idx = this._syscallTimestamps.length - 1;
-        const ongoing = this._syscallTimestamps[idx];
-        assert(ongoing.length == 2 && ongoing[0] != null);
-        if (ongoing[1] != null) {
-            //console.debug("note: a syscall ends, but it may have overlapped with other syscalls.");
+        if (this._syscallTimestamps.length == 0) {
+            // This syscall finished, but the process doesn't have any memory of a syscall being in progress.
+            // (Probably there were concurrent syscalls, and one overwrite the end time of this one?)
+            // Let's invent a new activity record that covers the full activity window (so the userland activity measurement will fall to 0)
+            this._syscallTimestamps.push([nowMillis - this._activityWindowMillis, nowMillis]);
+        } else {
+            const idx = this._syscallTimestamps.length - 1;
+            const ongoing = this._syscallTimestamps[idx];
+            assert(ongoing != null && ongoing.length == 2 && ongoing[0] != null);
+            if (ongoing[1] != null) {
+                //console.debug("note: a syscall ends, but it may have overlapped with other syscalls.");
+            }
+            this._syscallTimestamps[idx][1] = nowMillis;
         }
-        this._syscallTimestamps[idx][1] = nowMillis;
     }
 
     calculateUserlandActivity() {

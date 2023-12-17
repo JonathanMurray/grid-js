@@ -6,7 +6,7 @@ import { syscall } from "/lib/sys.mjs";
 
 async function main(args) {
 
-    let fileNames = await syscall("listFiles");
+    let filePaths = await syscall("listFiles", {path: "/"});
 
     const {socketFd, canvas} = await createWindow("File picker", [600, 320], {resizable: false});
 
@@ -22,15 +22,15 @@ async function main(args) {
 
     const selectionList = new SelectionList(
         (itemIdx) => {
-            input = fileNames[itemIdx];
+            input = filePaths[itemIdx];
             updateInputElement();
         },
         {expandHor: Expand.YES, verticalScroll: true, maxHeight: 195}
     );
     root.addChild(selectionList);
 
-    for (const fileName of fileNames) {
-        selectionList.addItem(new TextContainer(ctx, fileName));
+    for (const filePath of filePaths) {
+        selectionList.addItem(new TextContainer(ctx, filePath));
     }
 
     root
@@ -54,7 +54,7 @@ async function main(args) {
     }
 
     async function tryOpen() {
-        if (fileNames.includes(input)) {
+        if (filePaths.includes(input)) {
             await syscall("exit", {picked: input});
         }
         errorElement.setText("No such file!");
