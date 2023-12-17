@@ -1,8 +1,8 @@
 "use strict";
 
-import { writeln, write } from "/lib/stdlib.mjs";
+import { writeln, write, writeError } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
-import { assert } from "/shared.mjs";
+import { FileType, ansiColor, assert, resolvePath } from "/shared.mjs";
 
 async function main(args) {
 
@@ -17,41 +17,50 @@ async function main(args) {
         }
     }
 
+    const workingDir = await syscall("getWorkingDirectory");
+
     if (paths.length == 0) {
-        await list(".", long);
+        await listDirectory(workingDir, long);
     } else {
+        
         for (const path of paths) {
-            await list(path, long);
+            let status;
+            try {
+                status = await syscall("getFileStatus", {path});
+            } catch (e) {
+                await writeError(e["message"]);
+                return;
+            }
+            const resolved = "/" + resolvePath(workingDir, path).join("/");
+            if (status.type == FileType.DIRECTORY) {
+                await listDirectory(resolved, long);
+            } else {
+                await writeln(resolved);
+            }
         }
     }
 }
 
-async function list(path, long) {
-    const filePaths = await syscall("listFiles", {path});
+async function listDirectory(path, long) {
+    const names = await syscall("listDirectory", {path});
 
     if (long) {
         let lines = [];
         let widestLength = 0;
         let widestType = 0;
-        for (let filePath of filePaths) {
-            const status = await syscall("getFileStatus", {filePath});
+        for (let name of names) {
+            const resolved = "/" + resolvePath(path, name).join("/");
+            const status = await syscall("getFileStatus", {path: resolved});
             let len;
-            let type;
-            if ("text" in status) {
-                len = status.text.length.toString();
-                type = "text";
-            } else if ("pipe" in status) {
-                len = "-";
-                type = "pipe";
-            } else if ("directory" in status) {
-                len = "-";
-                type = "dir";
+            const type = status.type;
+            if (type == FileType.TEXT) {
+                len = status.length.toString();
             } else {
-                assert(false, `Unhandled file status: ${JSON.stringify(status)}`)
+                len = "-";
             }
             widestLength = Math.max(widestLength, len.length);
             widestType = Math.max(widestType, type.length);
-            lines.push({type, len, filePath});
+            lines.push({type, len, filePath: name});
         }
         for (let {type, len, filePath} of lines) {
             await writeln(`${type.padEnd(widestType)} ${len.padStart(widestLength)} ${filePath}`);
@@ -61,14 +70,21 @@ async function list(path, long) {
         const terminalWidth = terminalSize[0];
         const interval = 15;
         let lineWidth = 0;
-        for (let filePath of filePaths) {
-            const len = Math.ceil(filePath.length / interval) * interval;
-            const aligned = filePath.padEnd(len, " ");
+        for (let name of names) {
+            const resolved = "/" + resolvePath(path, name).join("/");
+            const status = await syscall("getFileStatus", {path: resolved});
+            const len = Math.ceil(name.length / interval) * interval;
+            const aligned = name.padEnd(len, " ");
             if (lineWidth + aligned.length > terminalWidth) {
                 await writeln("");
                 lineWidth = 0;
             }
-            await write(aligned);
+            if (status.type === FileType.DIRECTORY) {
+                
+                await write(ansiColor(aligned, 35));
+            } else {
+                await write(aligned);
+            }
             lineWidth += aligned.length;
         }
         await writeln("");

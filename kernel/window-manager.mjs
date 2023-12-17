@@ -692,8 +692,10 @@ class GraphicsSocketFile {
         throw new SysError("cannot seek graphics socket", Errno.SPIPE);
     }
 
-    getFileType() {
-        return FileType.SOCKET;
+    getStatus() {
+        return {
+            type: FileType.SOCKET
+        };
     }
 
     pollRead(resolver) {

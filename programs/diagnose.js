@@ -4,22 +4,22 @@ import { writeln, write, read } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
 async function main(args) {
-    let filePaths = await syscall("listFiles", {path: "/"});
+    let fileNames = await syscall("listDirectory", {path: "/"});
 
     let children = [];
     const nullFd = await syscall("openFile", {filePath: "null"});
-    for (let filePath of filePaths) {
-        if (filePath == "diagnose") {
+    for (let fileName of fileNames) {
+        if (fileName == "diagnose") {
             // Don't recurse
             continue;
         }
         
         const {readerId, writerId} = await syscall("createPipe");
         try {
-            const pid = await syscall("spawn", {programPath: filePath, fds: [nullFd, writerId]});
-            children.push({filePath, pid, pipeReaderId: readerId});
+            const pid = await syscall("spawn", {programPath: fileName, fds: [nullFd, writerId]});
+            children.push({filePath: fileName, pid, pipeReaderId: readerId});
         } catch (e) {
-            await writeln(`Failed to start ${filePath}: ${e}`);
+            await writeln(`Failed to start ${fileName}: ${e}`);
         }
         await syscall("close", {fd: writerId});
     }

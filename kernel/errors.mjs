@@ -10,6 +10,8 @@ export const Errno = {
     WOULDBLOCK: "WOULDBLOCK",
     /** Trying to seek on a pipe */
     SPIPE: "SPIPE",
+    NOTDIR: "NOTDIR",
+    ISDIR: "ISDIR",
 }
 
 export class WaitError {

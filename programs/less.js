@@ -6,27 +6,30 @@ import { writeError, read, write, terminal } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 import { FileType, ANSI_ERASE_ENTIRE_SCREEN, ANSI_CSI, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN } from "/shared.mjs";
 
-
-
-
 async function main(args) {
 
     try {
         if (args.length >= 1) {
             const filePath = args[0];
-            const fd = await syscall("openFile", {filePath});
+            let fd;
+            try {
+                fd = await syscall("openFile", {filePath});
+            } catch (e) {
+                writeError(e["message"]);
+                return;
+            }
             await run(fd);
         } else {
             const stdin = 0;
-            const fileType = await syscall("getFileType", {fd: stdin});
-            if (fileType == FileType.PTY) {
+            const status = await syscall("getFileStatus", {fd: stdin});
+            if (status.type == FileType.PTY) {
                 writeError("specify file or use non-pty stdin")
                 return;
             }
             await run(stdin);
         }
     } catch (error) {
-        if (error.name != "ProcessInterrupted") {
+        if (error["name"] != "ProcessInterrupted") {
             throw error;
         }
     } finally {
@@ -50,7 +53,7 @@ async function run(contentFd) {
 
     let lineWidth;
     let rows;
-    let lineToRowMapping;
+    let lineToRowMapping = null;
     let inputBuffer = "";
 
     let termsize = await syscall("getTerminalSize");
@@ -60,7 +63,7 @@ async function run(contentFd) {
             await syscall("seekInFile", {fd: contentFd, position: 0});
         } catch (error) {
             // The input stream may not be seekable.
-            if (error.errno != Errno.SPIPE) {
+            if (error["errno"] != Errno.SPIPE) {
                 throw error;
             }
         }
@@ -154,6 +157,10 @@ async function run(contentFd) {
             } else if ([ANSI_CURSOR_DOWN, "j"].includes(input)) {
                 const delta = lineNumber >= 1 ? lineNumber : 1;
                 setOffset(offset + delta);
+            } else if (input == "d") {
+                setOffset(offset + Math.ceil(termsize[1] / 2));
+            } else if (input == "u") {
+                setOffset(offset - Math.ceil(termsize[1] / 2));
             } else if (input == "g") {
                 if (lineNumber >= 1) {
                     setOffset(lineToRowMapping[lineNumber]);

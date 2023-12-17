@@ -1,4 +1,4 @@
-import { ANSI_CURSOR_BACK, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_FORWARD, ASCII_BACKSPACE, ASCII_CARRIAGE_RETURN, ASCII_END_OF_TEXT, ASCII_END_OF_TRANSMISSION, FileType, TextWithCursor, ansiBackgroundColor, assert } from "../shared.mjs";
+import { ANSI_CURSOR_BACK, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_FORWARD, ASCII_BACKSPACE, ASCII_CARRIAGE_RETURN, ASCII_END_OF_TEXT, ASCII_END_OF_TRANSMISSION, FileOpenMode, FileType, TextWithCursor, ansiBackgroundColor, assert } from "../shared.mjs";
 import { SysError, Errno } from "./errors.mjs";
 
 
@@ -47,8 +47,10 @@ class _PtySlaveFile {
         throw new SysError("cannot seek pty-slave", Errno.SPIPE);
     }
 
-    getFileType() {
-        return FileType.PTY;
+    getStatus() {
+        return {
+            type: FileType.PTY
+        }
     }
 }
 
@@ -85,8 +87,10 @@ class _PtyMasterFile {
         throw new SysError("cannot seek pty-master", Errno.SPIPE);
     }
 
-    getFileType() {
-        return FileType.PTY;
+    getStatus() {
+        return {
+            type: FileType.PTY
+        }
     }
 
     pollRead(resolver) {
@@ -444,13 +448,10 @@ export class NullFile {
 
     getStatus() {
         return {
-            pipe: {}
+            type: FileType.PIPE
         };
     }
 
-    getFileType() {
-        return FileType.PIPE;
-    }
 }
 
 export class BrowserConsoleFile {
@@ -499,12 +500,8 @@ export class BrowserConsoleFile {
 
     getStatus() {
         return {
-            pipe: {}
+            type: FileType.PIPE
         };
-    }
-
-    getFileType() {
-        return FileType.PIPE;
     }
 }
 
@@ -549,17 +546,13 @@ export class PipeFile {
 
     getStatus() {
         return {
-            pipe: {}
+            type: FileType.PIPE
         };
     }
 
-    getFileType() {
-        return FileType.PIPE;
-    }
 }
 
 export class TextFile {
-    // TODO check all callsites
     constructor(text) {
         this.text = text;
     }
@@ -589,14 +582,9 @@ export class TextFile {
 
     getStatus() {
         return {
-            text: {
-                length: this.text.length
-            }
+            type: FileType.TEXT,
+            length: this.text.length
         };
-    }
-
-    getFileType() {
-        return FileType.TEXT;
     }
 }
 
@@ -619,30 +607,31 @@ export class Directory {
         return this._entries;
     }
 
-    open() {
-        // relevant for pipes
+    open(mode) {
+        if (mode !== FileOpenMode.DIRECTORY) {
+            throw new SysError(`cannot open directory as: ${mode}`);
+        }
     }
 
     close() {
         // relevant for pipes
     }
 
+    requestReadAt() {
+        throw new SysError("cannot read directory", Errno.ISDIR)
+    }
+
+    requestWriteAt() {
+        throw new SysError("cannot write directory", Errno.ISDIR)
+    }
+
     getStatus() {
         return {
-            directory: {}
+            type: FileType.DIRECTORY
         };
     }
-
-    getFileType() {
-        return FileType.DIRECTORY;
-    }
 }
 
-export const FileOpenMode = {
-    READ: "READ",
-    WRITE: "WRITE",
-    READ_WRITE: "READ_WRITE",
-}
 
 /** "file" in Linux */
 export class OpenFileDescription {
@@ -721,8 +710,8 @@ export class OpenFileDescription {
         this._file.setLength(length);
     }
 
-    getFileType() {
-        return this._file.getFileType();
+    getStatus() {
+        return this._file.getStatus();
     }
 
     getFilePath() {
@@ -773,8 +762,8 @@ export class FileDescriptor {
         this._openFileDescription.setLength(length);
     }
 
-    getFileType() {
-        return this._openFileDescription.getFileType();
+    getStatus() {
+        return this._openFileDescription.getStatus();
     }
 
     getFilePath() {

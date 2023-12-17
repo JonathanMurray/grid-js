@@ -18,16 +18,17 @@ async function main(args) {
         while (true) {
 
             const procs = await syscall("listProcesses");
-            
+
             let output = ANSI_ERASE_ENTIRE_SCREEN;
-            
+
             output += (`${header("sid")}  ${header("pgid")}  ${header("ppid")}  ${header("pid")}  ` + 
-                       `${header("program")}   ${header("activity")} ${header("status")}    ${header("syscalls")} ${header("fds")}\n`);
+                       `${header("activity")} ${header("status")}    ${header("syscalls")} ${header("fds")}    ${header("program")}\n`);
             for (let proc of procs) {
                 const ppid = formatPpid(proc.ppid);
-                output += pad(proc.sid, 5) + pad(proc.pgid, 6) + pad(ppid, 6) + pad(proc.pid, 5) + pad(proc.programName, 10) 
+                output += pad(proc.sid, 5) + pad(proc.pgid, 6) + pad(ppid, 6) + pad(proc.pid, 5)
                     + pad((proc.userlandActivity * 100).toFixed(0) + "%", 9)
-                    + pad(formatExitValue(proc.exitValue), 10) + pad(proc.syscallCount, 9) + Object.keys(proc.fds) + "\n";
+                    + pad(formatExitValue(proc.exitValue), 10) + pad(proc.syscallCount, 9) + pad(Object.keys(proc.fds), 7)
+                    + pad(proc.programName, 10) + "\n";
             }
             await write(output);
 

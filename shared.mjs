@@ -133,3 +133,37 @@ export const FileType = {
     SOCKET: "SOCKET",
     DIRECTORY: "DIRECTORY",
 }
+
+export function resolvePath(directory, path) {
+    assert(typeof directory === "string" && directory.startsWith("/"));
+    assert(typeof path === "string");
+    let parts;
+    if (path.startsWith("/")) {
+        // absolute path, ignore directory
+        parts = path.split("/");
+    } else {
+        parts = directory.split("/").concat(path.split("/"));
+    }
+
+    let resolvedParts = [];
+    for (const part of parts) {
+        if (part == ".") {
+            // link to self
+        } else if (part == "..") {
+            // link to parent
+            resolvedParts.pop();
+        } else if (part.length > 0) {
+            resolvedParts.push(part);
+        }
+    }
+
+    return resolvedParts;
+}
+
+
+export const FileOpenMode = {
+    READ: "READ",
+    WRITE: "WRITE",
+    READ_WRITE: "READ_WRITE",
+    DIRECTORY: "DIRECTORY",
+}

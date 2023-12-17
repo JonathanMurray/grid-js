@@ -140,10 +140,12 @@ const builtins = {
             await writeln(`  ${name}`);
         }
 
-        const filePaths = await syscall("listFiles", {path: "/"});
-        await writeln(ansiBackgroundColor("Files:", 44));
-        for (let filePath of filePaths) {
-            await write(`${filePath}  `);
+        const programFiles = await syscall("listDirectory", {path: "/bin"});
+        await writeln(ansiBackgroundColor("Programs:", 44));
+        for (let name of programFiles) {
+            if (![".", ".."].includes(name)) {
+                await write(`${name}  `);
+            }
         }
         await writeln("");
     },
@@ -242,7 +244,7 @@ async function parse(line) {
     let builtin = null;
     let redirectOutputTo = null;
 
-    const filePaths = await syscall("listFiles", {path: "/bin"});
+    const programNames = await syscall("listDirectory", {path: "/bin"});
 
     let command = null;
     let args = [];
@@ -251,7 +253,7 @@ async function parse(line) {
         if (command == null && builtin == null) {
             if (word in builtins) {
                 builtin = {name: word, args: null}
-            } else if (filePaths.includes(word)) {
+            } else if (programNames.includes(word)) {
                 if (pipeline == null) {
                     pipeline = {commands: [], runInBackground: false};
                 }

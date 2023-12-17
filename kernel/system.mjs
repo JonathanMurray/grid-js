@@ -1,14 +1,13 @@
 "use strict";
 
 
-import {TextFile, BrowserConsoleFile, NullFile, PipeFile, FileOpenMode, OpenFileDescription, FileDescriptor, PseudoTerminal, Directory} from "./io.mjs";
+import {TextFile, BrowserConsoleFile, NullFile, PipeFile, OpenFileDescription, FileDescriptor, PseudoTerminal, Directory} from "./io.mjs";
 import { WindowManager } from "./window-manager.mjs";
 import { Process } from "./process.mjs";
 import { Syscalls } from "./syscalls.mjs";
 import { SysError, WaitError } from "./errors.mjs";
 import { Errno } from "./errors.mjs";
-import { ANSI_CSI, FileType, assert } from "../shared.mjs";
-import { Direction } from "/lib/gui.mjs";
+import { FileOpenMode, FileType, assert, resolvePath } from "../shared.mjs";
 
 async function fetchProgram(programName) {
     if (!programName.endsWith(".mjs")) {
@@ -88,6 +87,7 @@ export class System {
 
         const subdir = new Directory();
         subdir.createDirEntry("x", new TextFile("this file lives in a subdir"));
+        subdir.createDirEntry("inner", new Directory());
         rootDir.createDirEntry("subdir", subdir);
 
         const system = new System(rootDir);
@@ -101,9 +101,9 @@ export class System {
         system._windowManager = await WindowManager.init(spawnFromUi);
         
         const consoleStream = system._addOpenFileDescription(system._lookupFile(["dev", "con"]), FileOpenMode.READ_WRITE, "/dev/con");
+
         await system._spawnProcess({programPath: "/bin/terminal", args: ["/bin/shell"], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
-        
-        //await system._spawnProcess({programName: "demo", args: [], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
+        //await system._spawnProcess({programPath: "/bin/editor", args: [], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
         
         return system;
     }
@@ -221,14 +221,10 @@ export class System {
             return this._rootDir;
         }
         let file = this._rootDir;
-
         parts = [...parts]; // Don't modify the input
         while (parts.length > 0) {
-            console.log("PARTS: ", parts);
             const name = parts.shift();
-         
             file = file.dirEntries()[name];
-
             if (file == null && parts.length > 0) {
                 throw new SysError(`no such directory: '${name}'`);
             }
@@ -241,7 +237,7 @@ export class System {
         assert(args != undefined);
 
         // We assume that programPath is absolute
-        const parts = System._resolvePath("/", programPath);
+        const parts = resolvePath("/", programPath);
         const file = this._lookupFile(parts);
 
         if (file === undefined) {
@@ -322,8 +318,8 @@ export class System {
         for (let pid of Object.keys(this._processes)) {
             const proc = this.process(pid);
             let fds = {};
-            for (const [fd, value] of Object.entries(proc.fds)) {
-                fds[fd] = {type: value.getFileType(), name: value.getFilePath()};
+            for (const [fd, fileDescriptor] of Object.entries(proc.fds)) {
+                fds[fd] = {type: fileDescriptor.getStatus().type, name: fileDescriptor.getFilePath()};
             }
             procs.push({
                 pid, 
@@ -341,17 +337,14 @@ export class System {
         return procs;
     }
 
-    procOpenFile(proc, path, createIfNecessary) {
-        const parts = System._resolvePath(proc.workingDirectory, path);
+    procOpenFile(proc, path, {createIfNecessary, mode}) {
+        const parts = resolvePath(proc.workingDirectory, path);
         let file = this._lookupFile(parts);
         if (file == undefined) {
             if (createIfNecessary) {
-                console.log("Create file since necessary... Parts: ", parts);
                 const directory = this._lookupFile(parts.slice(0, parts.length - 1));
-                console.log("dir: ", directory);
                 assert(directory != null);
                 const fileName = parts[parts.length - 1];
-                console.log("File name: ", fileName);
                 file = new TextFile("");
                 directory.createDirEntry(fileName, file);
             } else {
@@ -359,7 +352,7 @@ export class System {
             }
         }
 
-        const fileDescriptor = this._addOpenFileDescription(file, FileOpenMode.READ_WRITE, path);
+        const fileDescriptor = this._addOpenFileDescription(file, mode, path);
         const fd = proc.addFileDescriptor(fileDescriptor);
         return fd;
     }
@@ -383,61 +376,37 @@ export class System {
         return {readerId, writerId};
     }
 
-    getFileStatus(filePath) {
-        const file = this._lookupFile(filePath);
+    procGetFileStatus(proc, path) {
+        const parts = resolvePath(proc.workingDirectory, path);
+        const file = this._lookupFile(parts);
 
         if (file === undefined) {
-            throw new SysError(`no such file: '${filePath}'`);
+            throw new SysError(`no such file: '${path}'`);
         }
         return file.getStatus();
     }
 
     procChangeWorkingDirectory(proc, path) {
-        const parts = System._resolvePath(proc.workingDirectory, path);
+        const parts = resolvePath(proc.workingDirectory, path);
         const file = this._lookupFile(parts);
-        assert(file.getFileType() === FileType.DIRECTORY);
+        if (file == null) {
+            throw new SysError(`no such file: ${path}`);
+        }
+        if (file.getStatus().type !== FileType.DIRECTORY) {
+            throw new SysError(`not directory: '${path}'`, Errno.NOTDIR);
+        }
         proc.workingDirectory = "/" + parts.join("/");
     }
 
-    static _resolvePath(workingDirectory, path) {
-
-        assert(typeof workingDirectory === "string" && workingDirectory.startsWith("/"));
-        let parts;
-        if (path.startsWith("/")) {
-            // absolute path, ignore workingDirectory
-            parts = path.split("/");
-        } else if (workingDirectory.endsWith("/")) {
-            parts = workingDirectory.split("/").concat(path.split("/"));
-        } else {
-            parts = workingDirectory.split("/").concat(path.split("/"));
-        }
-
-        let resolvedParts = [];
-        for (const part of parts) {
-            if (part == ".") {
-                // link to self
-            } else if (part == "..") {
-                // link to parent
-                resolvedParts.pop();
-            } else if (part.length > 0) {
-                resolvedParts.push(part);
-            }
-        }
-
-        console.log(`RESOLVED '${path}' -> ${resolvedParts}`); //TODO
-
-        return resolvedParts;
-    }
-
-    procListFiles(proc, path) {
+    procListDirectory(proc, path) {
         assert(path != null);
-        const parts = System._resolvePath(proc.workingDirectory, path);
+        const parts = resolvePath(proc.workingDirectory, path);
 
         const file = this._lookupFile(parts);
-        if (file.getFileType() === FileType.DIRECTORY) {
-            return Object.keys(file.dirEntries()); //.map(name => System._resolvePath(path, name));
+        if (file.getStatus().type === FileType.DIRECTORY) {
+            return Object.keys(file.dirEntries());
         } else {
-            return ["/" + parts.join("/")];
+            throw new SysError(`not directory: '${path}'`, Errno.NOTDIR)
         }
     }
 

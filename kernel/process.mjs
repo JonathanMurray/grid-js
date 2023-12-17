@@ -279,9 +279,9 @@ export class Process {
         this.fds[fd].seek(position);
     }
 
-    getFileType(fd) {
+    getFileDescriptorStatus(fd) {
         const fileDescriptor = this.fds[fd];
-        return fileDescriptor.getFileType();
+        return fileDescriptor.getStatus();
     }
 
     onExit(exitValue) {

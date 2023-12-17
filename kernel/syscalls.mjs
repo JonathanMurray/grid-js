@@ -1,6 +1,7 @@
 import { SysError } from "./errors.mjs";
 import { SignalBehaviour } from "./process.mjs";
 import { System } from "./system.mjs"
+import { FileOpenMode } from "/shared.mjs";
 
 function validateSyscallArgs(args, required, optional=[]) {
     if (typeof args != "object") {
@@ -67,10 +68,6 @@ export class Syscalls {
     }
     /** ------------------------------------------ */
 
-    getFileType(proc, args) {
-        let {fd} = validateSyscallArgs(args, ["fd"]);
-        return proc.getFileType(fd);
-    }
 
     createPipe(proc, args) {
         return this.system.procCreateUnnamedPipe(proc);
@@ -113,16 +110,22 @@ export class Syscalls {
     }
 
     openFile(proc, args) {
-        let {filePath, createIfNecessary} = validateSyscallArgs(args, ["filePath"], ["createIfNecessary"]);
-        if (createIfNecessary == undefined) {
-            createIfNecessary = false;
+        let {filePath, createIfNecessary, mode} = validateSyscallArgs(args, ["filePath"], ["createIfNecessary", "mode"]);
+        if (mode == null) {
+            mode = FileOpenMode.READ_WRITE;
         }
-        return this.system.procOpenFile(proc, filePath, createIfNecessary);
+        return this.system.procOpenFile(proc, filePath, {createIfNecessary, mode});
     }
 
     getFileStatus(proc, args) {
-        let {filePath} = validateSyscallArgs(args, ["filePath"]);
-        return this.system.getFileStatus(filePath);
+        let {path, fd} = validateSyscallArgs(args, [], ["path", "fd"]);
+        if (fd != null) {
+            return proc.getFileDescriptorStatus(fd);
+        } else if (path != null) {
+            return this.system.procGetFileStatus(proc, path);
+        } else {
+            throw new SysError("missing path or fd argument");
+        }
     }
 
     seekInFile(proc, args) {
@@ -154,9 +157,9 @@ export class Syscalls {
         return proc.workingDirectory;
     }
 
-    listFiles(proc, args) {
+    listDirectory(proc, args) {
         const {path} = validateSyscallArgs(args, ["path"]);
-        return this.system.procListFiles(proc, path);
+        return this.system.procListDirectory(proc, path);
     }
 
     spawn(proc, args) {

@@ -100,7 +100,7 @@ class Editor {
             this._yOffset = cursorRow - showDocRows + 1;
         }
         
-        const statusLines = [`=${this._filePath}= ${this._hasUnsavedChanges ? "*" : ""}`, ""];
+        const statusLines = [`= ${this._filePath} = ${this._hasUnsavedChanges ? "*" : ""}`, ""];
         const statusMargin = leftMargin + 1;
         for (let y = 0; y < topMargin; y++) {
             for (let x = 0; x < this._gridSize[0]; x++) {
