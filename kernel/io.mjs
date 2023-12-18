@@ -1,5 +1,6 @@
 import { ANSI_CURSOR_BACK, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_FORWARD, ASCII_BACKSPACE, ASCII_CARRIAGE_RETURN, ASCII_END_OF_TEXT, ASCII_END_OF_TRANSMISSION, FileOpenMode, FileType, TextWithCursor, ansiBackgroundColor, assert } from "../shared.mjs";
 import { SysError, Errno } from "./errors.mjs";
+import { WaitQueues } from "./wait-queues.mjs";
 
 
 
@@ -32,15 +33,15 @@ class _PtySlaveFile {
         this._pty._pipeToSlave.decrementNumReaders();
         this._pty._pipeToMaster.decrementNumWriters();
     }
-    
-    requestWriteAt(_charIdx, writer) {
+
+    writeAt(_charIdx, text) {
         assert(this._isOpen, "writing closed");
-        this._pty._requestWriteOnSlave(writer);
+        this._pty._writeOnSlave(text);
     }
     
-    requestReadAt(_charIdx, args) {
+    readAt(_charIdx, args) {
         assert(this._isOpen, "reading closed");
-        return this._pty._pipeToSlave.requestRead(args);
+        return this._pty._pipeToSlave.read(args);
     }
 
     seek() {
@@ -73,14 +74,14 @@ class _PtyMasterFile {
         this._pty._pipeToSlave.decrementNumWriters();
     }
 
-    requestWriteAt(_charIdx, writer) {
+    writeAt(_charIdx, text) {
         assert(this._isOpen);
-        this._pty._requestWriteOnMaster(writer);
+        this._pty._writeOnMaster(text);
     }
     
-    requestReadAt(_charIdx, args) {
+    readAt(_charIdx, args) {
         assert(this._isOpen);
-        return this._pty._pipeToMaster.requestRead(args);
+        return this._pty._pipeToMaster.read(args);
     }
 
     seek() {
@@ -93,9 +94,9 @@ class _PtyMasterFile {
         }
     }
 
-    pollRead(resolver) {
+    pollRead() {
         assert(this._isOpen);
-        return this._pty._pipeToMaster.pollRead(resolver);
+        return this._pty._pipeToMaster.pollRead();
     }
 }
 
@@ -125,13 +126,11 @@ export class PseudoTerminal {
         return new _PtySlaveFile(this);
     }
 
-    _requestWriteOnSlave(writer) {
-        const text = writer();
+    _writeOnSlave(text) {
         this.writeToMaster(text);
     }
 
-    _requestWriteOnMaster(writer) {
-        let text = writer();
+    _writeOnMaster(text) {
         if (this._mode == _PseudoTerminalMode.LINE) {
             this._lineDiscipline.handleTextFromMaster(text);
         } else if (this._mode == _PseudoTerminalMode.CHARACTER) {
@@ -190,23 +189,12 @@ export class PseudoTerminal {
         throw new SysError(`invalid pty config: ${JSON.stringify(config)}`);
     }
 
-    _createCarelessWriter(text) {
-        function writer(error)  {
-            if (error) {
-                console.warn(`Failed writing to PTY: ${error}`);
-            } else {
-                return text;
-            }
-        }
-        return writer;
-    }
-
     writeToMaster(text) {
-        this._pipeToMaster.requestWrite(this._createCarelessWriter(text));
+        this._pipeToMaster.write(text);
     }
 
     writeToSlave(text) {
-        this._pipeToSlave.requestWrite(this._createCarelessWriter(text));
+        this._pipeToSlave.write(text);
     }
 }
 
@@ -291,6 +279,8 @@ class _Pipe {
         this._restrictReadsToProcessGroup = null;
         this._numReaders = 0;
         this._numWriters = 0;
+        this._waitQueues = new WaitQueues();
+        this._waitQueues.addQueue("waiting");
     }
 
     decrementNumReaders() {
@@ -301,7 +291,7 @@ class _Pipe {
     decrementNumWriters() {
         this._numWriters --;
         assert(this._numWriters >= 0,  "non-negative number of pipe writers");
-        this._handleWaiting();
+        this._waitQueues.wakeup("waiting");
     }
     
     incrementNumReaders() {
@@ -314,83 +304,49 @@ class _Pipe {
 
     setRestrictReadsToProcessGroup(pgid) {
         this._restrictReadsToProcessGroup = pgid;
-        while (this._handleWaiting()) {}
+        this._waitQueues.wakeup("waiting");
     }
     
     isProcAllowedToRead(proc) {
         return this._restrictReadsToProcessGroup == null || this._restrictReadsToProcessGroup == proc.pgid;
     }
+    
+    async pollRead() {
+        await this._waitQueues.waitFor("waiting", () => this._buffer.length > 0 || this._numWriters == 0);
+    }
 
-    requestRead({reader, proc, nonBlocking}) {
+    async read({proc, nonBlocking}) {
         assert(this._numReaders > 0);
         assert(proc != null);
         
         if (nonBlocking) {
             if (this._buffer.length > 0) {
                 if (this.isProcAllowedToRead(proc)) {
-                    this._invokeReader(reader);
+                    return this._doRead();
                 } else {
-                    reader({error: {name: "SysError", message: "not allowed to read", errno: Errno.WOULDBLOCK}});
+                    throw new SysError("not allowed to read", Errno.WOULDBLOCK);
                 }
             } else {
-                reader({error: {name: "SysError", message: "nothing available", errno: Errno.WOULDBLOCK}});
+                throw new SysError("nothing available", Errno.WOULDBLOCK);
             }
-            return;
         }
 
-        this._waitingReaders.push({reader, proc});
-        this._handleWaiting();
+        await this._waitQueues.waitFor("waiting", () => this.isProcAllowedToRead(proc) && (this._buffer.length > 0 || this._numWriters == 0));
+        return this._doRead();
     }
 
-    pollRead(resolver) {
-        this._waitingPollers.push(resolver);
-        this._handleWaiting();
-    }
     
-    requestWrite(writer) {
+    write(text) {
         assert(this._numWriters > 0, "A writer must exist");
         if (this._numReaders == 0) {
-            writer("read-end is closed");
-            return;
+            throw new SysError("read-end is closed");
         }
 
-        const text = writer();
         this._buffer = this._buffer.concat(text);
-        this._handleWaiting();
+        this._waitQueues.wakeup("waiting");
     }
 
-    _handleWaiting() {
-        if (this._buffer.length > 0 || this._numWriters == 0) {
-            if (this._waitingReaders.length > 0) {
-                for (let i = 0; i < this._waitingReaders.length;) {
-                    const {reader, proc} = this._waitingReaders[i];
-                    if (proc.exitValue != null) {
-                        // The process will never be able to read
-                        this._waitingReaders.splice(i, 1);
-                    } else if (this.isProcAllowedToRead(proc)) {
-                        this._waitingReaders.splice(i, 1);
-                        if (this._invokeReader(reader)) {
-                            return true; // Indicate that it may be useful to call the function again
-                        }
-                    } else {
-                        // The reader was left in the list, and we move onto the next one
-                        i++;
-                    }
-                }
-            }
-
-            // TODO: Handle blocking IO / polling with a generic Kernel-provided wait-queue mechanism?
-            //       https://www.makelinux.net/ldd3/?u=chp-6.shtml
-            while (this._waitingPollers.length > 0) {
-                const poller = this._waitingPollers.shift();
-                poller(); // signal to the polling process that the fd is ready for reading
-            }
-
-        }
-        return false;
-    }
-
-    _invokeReader(reader) {
+    _doRead() {
         let text = "";
         let n = 0;
         if (this._buffer.length == 0) {
@@ -412,26 +368,21 @@ class _Pipe {
             }
         }
 
-        // Check that a read actually occurs. This is necessary because of readAny()
-        if (reader({text})) {
-            this._buffer = this._buffer.slice(n);
-            return true; 
-        }
-        return false;
+        this._buffer = this._buffer.slice(n);
+        return text;
     }
 }
 
 export class NullFile {
     constructor() {
     }
-    
-    requestWriteAt(_charIndex, writer) {
-        writer();
-        // The text is discarded
+
+    writeAt() {
+        // text is discarded
     }
 
-    requestReadAt(_charIdx, {reader}) {
-        reader({text: ""}); // EOF
+    readAt() {
+        return ""; //EOF
     }
 
     open() {
@@ -457,33 +408,27 @@ export class NullFile {
 export class BrowserConsoleFile {
 
     constructor() {
+        this._waitQueues = new WaitQueues();
         this._input = "";
         this._waitingReaders = [];
+        this._waitQueues.addQueue("waiting");
     }
-    
+
     // This call is meant to originate from the user typing into the browser's dev console
     addInputFromBrowser(text) {
         this._input += text;
-        this._checkReaders();
+        this._waitQueues.wakeup("waiting");
     }
 
-    _checkReaders() {
-        if (this._input && this._waitingReaders.length > 0) {
-            const reader = this._waitingReaders.shift();
-            if (reader({text: this._input})) {
-                this._input = "";
-            }
-        }
-    }
-
-    requestWriteAt(_charIndex, writer) {
-        const text = writer();
+    writeAt(_charIdx, text) {
         console.log(ansiBackgroundColor(text, 45));
     }
 
-    requestReadAt(_charIndex, {reader}) {
-        this._waitingReaders.push(reader);
-        this._checkReaders();
+    async readAt(_charIndex) {
+        await this._waitQueues.waitFor("waiting", () => this._input.length > 0);
+        const text = this._input;
+        this._input = "";
+        return text;
     }
 
     open() {
@@ -510,12 +455,12 @@ export class PipeFile {
         this._pipe = new _Pipe();
     }
     
-    requestReadAt(_charIndex, args) {
-        this._pipe.requestRead(args);
+    readAt(_charIndex, args) {
+        return this._pipe.read(args);
     }
 
-    requestWriteAt(_charIndex, writer) {
-        this._pipe.requestWrite(writer);
+    writeAt(_charIndex, text) {
+        return this._pipe.write(text);
     }
 
     open(mode) {
@@ -557,15 +502,13 @@ export class TextFile {
         this.text = text;
     }
 
-    requestWriteAt(charIndex, writer) {
+    writeAt(charIndex, text) {
         const existing = this.text;
-        const text = writer();
         this.text = existing.slice(0, charIndex) + text + existing.slice(charIndex + text.length);
     }
 
-    requestReadAt(charIndex, {reader}) {
-        const text = this.text.slice(charIndex);
-        reader({text});
+    readAt(charIndex) {
+        return this.text.slice(charIndex);
     }
 
     open() {
@@ -617,11 +560,11 @@ export class Directory {
         // relevant for pipes
     }
 
-    requestReadAt() {
+    readAt() {
         throw new SysError("cannot read directory", Errno.ISDIR)
     }
 
-    requestWriteAt() {
+    writeAt() {
         throw new SysError("cannot write directory", Errno.ISDIR)
     }
 
@@ -648,42 +591,25 @@ export class OpenFileDescription {
         this._file.open(mode);
     }
 
-    requestWrite(writer) {
+    async write(text) {
         if (this._mode == FileOpenMode.READ) {
-            writer("write not allowed");
-            return;
+            throw new SysError("write not allowed");
         }
 
-        const wrappedWriter = (error) => {
-            if (error == null) {
-                const text = writer();
-                this._charIndex += text.length;
-                return text;
-            } else {
-                writer(error);
-            }
-        }
-
-        this._file.requestWriteAt(this._charIndex, wrappedWriter);
-        
+        const result = await this._file.writeAt(this._charIndex, text);
+        this._charIndex += text.length;
+        return result;
     }
 
-    requestRead({proc, reader}) {
+    async read(args) {
         // TODO also forward "nonBlocking" arg?
         if (this._mode == FileOpenMode.WRITE) {
-            reader({error: "read not allowed"});
-            return;
+            throw new SysError("read not allowed");
         }
 
-        const wrappedReader = ({text, error}) => {
-            if (error == null) {
-                assert(text != null);
-                this._charIndex += text.length; 
-            }
-            return reader({text, error});
-        }
-
-        this._file.requestReadAt(this._charIndex, {proc, reader: wrappedReader});
+        const text = await this._file.readAt(this._charIndex, args);
+        this._charIndex += text.length;
+        return text;
     }
 
     seek(position) {
@@ -718,8 +644,8 @@ export class OpenFileDescription {
         return this._filePath;
     }
 
-    pollRead(resolver) {
-        return this._file.pollRead(resolver);
+    pollRead() {
+        return this._file.pollRead();
     }
 }
 
@@ -729,14 +655,14 @@ export class FileDescriptor {
         this._isOpen = true;
     }
 
-    requestWrite(writer) {
+    write(text) {
         assert(this._isOpen, "Cannot write to closed file descriptor");
-        this._openFileDescription.requestWrite(writer);
+        return this._openFileDescription.write(text);
     }
     
-    requestRead(args) {
+    read(args) {
         assert(this._isOpen);
-        this._openFileDescription.requestRead(args);
+        return this._openFileDescription.read(args);
     }
 
     close() {
@@ -770,8 +696,8 @@ export class FileDescriptor {
         return this._openFileDescription.getFilePath();
     }
 
-    pollRead(resolver) {
-        return this._openFileDescription.pollRead(resolver);
+    pollRead() {
+        return this._openFileDescription.pollRead();
     }
 }
 

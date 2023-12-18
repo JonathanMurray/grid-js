@@ -148,7 +148,7 @@ async function main(args) {
                 updateInputElement();
             }
     
-            redraw();
+            await redraw();
         }
     }
 }

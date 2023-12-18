@@ -1,7 +1,7 @@
 "use strict";
 
 import { read, writeln, write, log, writeError, terminal, readEntireFile } from "/lib/stdlib.mjs";
-import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_LINE_TO_RIGHT, ASCII_BACKSPACE, ASCII_END_OF_TRANSMISSION, ASCII_END_OF_TEXT, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_BACK, ANSI_CURSOR_FORWARD, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiBackgroundColor, ansiColor } from "/shared.mjs";
+import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_LINE_TO_RIGHT, ASCII_BACKSPACE, ASCII_END_OF_TRANSMISSION, ASCII_END_OF_TEXT, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_BACK, ANSI_CURSOR_FORWARD, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiBackgroundColor, ansiColor, FileOpenMode } from "/shared.mjs";
 
 import { syscall } from "/lib/sys.mjs";
 import { reportCrash} from "/lib/errors.mjs";
@@ -21,7 +21,7 @@ async function main(args) {
     while (true) {
         const workingDir = await syscall("getWorkingDirectory");
         prompt = ansiColor("{", 35) + workingDir + ansiColor("}", 35) + " ";
-        const inputLine = await readline.readLine(prompt);
+        const inputLine = await readline.readLine(prompt, `{${workingDir}} `.length);
         if (inputLine === null) {
             // EOF
             return;
@@ -62,7 +62,19 @@ async function handleInputLine(input) {
 
         let pgid = null;
         let jobEntries = [];
-        
+
+        let finalStdout;
+        if (redirectOutputTo == null) {
+            finalStdout = shellStdout;
+        } else {
+            try {
+                finalStdout = await syscall("openFile", {filePath: redirectOutputTo, createIfNecessary: true, mode: FileOpenMode.WRITE});
+            } catch (e) {
+                writeError(e["message"]);
+                return;
+            }
+        }
+
         for (let i = 0; i < commands.length; i++) {
 
             let stdin;
@@ -76,12 +88,7 @@ async function handleInputLine(input) {
             }
 
             if (i == commands.length - 1) {
-                if (redirectOutputTo === null) {
-                    stdout = shellStdout;
-                } else {
-                    const outputFileFd = await syscall("openFile", {filePath: redirectOutputTo, createIfNecessary: true});
-                    stdout = outputFileFd;
-                }
+                stdout = finalStdout;
             } else {
                 const pipe = await syscall("createPipe");
                 pipedStdin = pipe.readerId;
@@ -100,7 +107,6 @@ async function handleInputLine(input) {
                 pid = await syscall("spawn", {programPath, args, fds: [stdin, stdout], pgid});
             } catch (e) {
                 await writeError(e["message"]);
-                throw e; //TODO
                 return;
             }
 

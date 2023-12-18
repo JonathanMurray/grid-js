@@ -43,7 +43,8 @@ async function main(args) {
     let uncommitted = "";
     while (true) {
         const prompt = uncommitted.length == 0 ? ">>> " : "... ";
-        const line = await readline.readLine(prompt);
+        const promptLen = 4;
+        const line = await readline.readLine(prompt, promptLen);
         if (line == null) {
             break;
         }

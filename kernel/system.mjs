@@ -64,12 +64,14 @@ export class System {
         }
 
         proc.onSyscallStart();
-        const result = await this._syscalls[syscall](proc, args);
-        proc.onSyscallEnd();
-        return result;
+        try {
+            return await this._syscalls[syscall](proc, args);
+        } finally {
+            proc.onSyscallEnd();
+        }
     }
 
-    procWaitForChild(proc, childPid, nonBlocking) {
+    async procWaitForChild(proc, childPid, nonBlocking) {
         
 
         function throwIfError(exitValue) {
@@ -84,21 +86,18 @@ export class System {
         const self = this;
         if (childPid == "ANY_CHILD") {
             assert(!nonBlocking);
-            return proc.waitForAnyChild().then(({pid, exitValue}) => {
-                console.log(`${proc.pid} successfully waited for any child (${pid}) to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
-                delete self._processes[pid];
-                //console.log("After deletion; processes: ", self.processes);
-                return throwIfError({pid, exitValue});
-            });
+            let {pid, exitValue} = await proc.waitForAnyChild();
+            console.log(`${proc.pid} successfully waited for any child (${pid}) to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
+            delete self._processes[pid];
+            exitValue = throwIfError(exitValue);
+            return {pid, exitValue};
         } else {
             //console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
    
-            return proc.waitForChild(childPid, nonBlocking).then((exitValue) => {
-                console.log(`${proc.pid} successfully waited for ${childPid} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
-                delete self._processes[childPid];
-                //console.log("After deletion; processes: ", self.processes);
-                return throwIfError(exitValue);
-            });
+            const exitValue = await proc.waitForChild(childPid, nonBlocking);
+            console.log(`${proc.pid} successfully waited for ${childPid} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
+            delete self._processes[childPid];
+            return throwIfError(exitValue);
         }
     }
     
@@ -398,7 +397,7 @@ export class System {
         }
         const receiverProc = this.process(pid);
         if (receiverProc != undefined) {
-            this.sendSignalToProcess(signal, receiverProc);
+            this._sendSignalToProcess(signal, receiverProc);
         } else {
             throw new SysError("no such process");
         }
@@ -410,7 +409,7 @@ export class System {
         for (let pid of Object.keys(this._processes)) {
             const proc = this._processes[pid];
             if (proc.pgid == pgid) {
-                this.sendSignalToProcess(signal, proc);
+                this._sendSignalToProcess(signal, proc);
                 foundSome = true;
             }
         }
@@ -419,7 +418,7 @@ export class System {
         }
     }
 
-    sendSignalToProcess(signal, proc) {
+    _sendSignalToProcess(signal, proc) {
         console.log(`[${proc.pid}] Received signal: ${signal}`);
         let lethal;
         if (signal == "kill") {

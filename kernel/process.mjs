@@ -93,7 +93,7 @@ export class Process {
             const lastSyscall = this._syscallTimestamps[this._syscallTimestamps.length - 1];
             assert(lastSyscall[0] != null);
             if (lastSyscall[1] == null) {
-                //console.debug("note: a syscall is started while one is already ongoing.");
+                console.debug("note: a syscall is started while one is already ongoing.");
                 return; //We won't try to measure concurrent syscalls in any sophisticated way.
             }
         }
@@ -113,7 +113,7 @@ export class Process {
             const ongoing = this._syscallTimestamps[idx];
             assert(ongoing != null && ongoing.length == 2 && ongoing[0] != null);
             if (ongoing[1] != null) {
-                //console.debug("note: a syscall ends, but it may have overlapped with other syscalls.");
+                console.debug("note: a syscall ends, but it may have overlapped with other syscalls.");
             }
             this._syscallTimestamps[idx][1] = nowMillis;
         }
@@ -211,57 +211,48 @@ export class Process {
         return false;
     }
     
-    write(fd, text) {
+    async write(fd, text) {
         assert (fd != null);
         const fileDescriptor = this.fds[fd];
         if (fileDescriptor == undefined) {
             throw new SysError("no such fd");
         }
         const {promise, promiseId} = this._syscallPromise("write");
-        const self = this;
-        fileDescriptor.requestWrite((error) => {
-            if (error != null) {
-                this._rejectPromise(promiseId, new SysError(error));
-                return null;
-            }
 
-            if (self.exitValue != null) {
-                return null; // signal that we are no longer attempting to write
-            }
-            if (this._resolvePromise(promiseId)) {
-                return text; // give the text to the fd
-            }
-            return null; // We ended up not writing.
-        });
-
-        return promise;
+        try {
+            const result = await fileDescriptor.write(text);
+            this._resolvePromise(promiseId);
+            return result;
+        } catch (e) {
+            this._rejectPromise(promiseId, e);
+            throw e;
+        } 
     }
 
-    read(fd, nonBlocking) {
+    async read(fd, nonBlocking) {
         const fileDescriptor = this.fds[fd];
         assert(fileDescriptor != undefined, `No such fd: ${fd}. file descriptors: ${Object.keys(this.fds)}`)
         const {promise, promiseId} = this._syscallPromise("read");
-        const reader = ({error, text}) => {
-            if (error != undefined) {
-                this._rejectPromise(promiseId, error);
-                return false; // No read occurred
-            }
-            const didRead = this._resolvePromise(promiseId, text);
-            return didRead;
-        }
-        fileDescriptor.requestRead({reader, proc: this, nonBlocking});
-        return promise;
+
+        try {
+            const text = await fileDescriptor.read({proc: this, nonBlocking});
+            this._resolvePromise(promiseId, text);
+            return text;
+        } catch (e) {
+            this._rejectPromise(promiseId, e);
+            throw e;
+        } 
     }
 
-    pollRead(fds, timeoutMillis) {
+    async pollRead(fds, timeoutMillis) {
         const {promise, promiseId} = this._syscallPromise("read");
 
         for (const fd of fds) {
             const fileDescriptor = this.fds[fd];
             assert(fileDescriptor != null);
-            fileDescriptor.pollRead(() => {
-                this._resolvePromise(promiseId, fd);
-            });
+            fileDescriptor.pollRead().then(() => 
+                this._resolvePromise(promiseId, fd)
+            );
         }
         if (timeoutMillis != null) {
             setTimeout(() => this._resolvePromise(promiseId, null), timeoutMillis);
@@ -306,14 +297,14 @@ export class Process {
         this.worker.terminate();
 
         const exitQueue = `exit:${this.pid}`;
-        this._waitQueues.wakeup(exitQueue, exitValue); // parent waiting for this process in particular
-        this._waitQueues.wakeup(`childrenExit:${this.ppid}`, {pid: this.pid, exitValue}); // parent waiting for any of its children
+        this._waitQueues.wakeup(exitQueue); // parent waiting for this process in particular
+        this._waitQueues.wakeup(`childrenExit:${this.ppid}`); // parent waiting for any of its children
         
         this._waitQueues.removeQueue(exitQueue);
         this._waitQueues.removeQueue(`childrenExit:${this.pid}`);
     }
 
-    waitForChild(childPid, nonBlocking) {
+    async waitForChild(childPid, nonBlocking) {
         const child = this.children[childPid];
         assert(child != null);
 
@@ -325,33 +316,36 @@ export class Process {
         }
 
         const {promise, promiseId} = this._syscallPromise("wait");
-        const onReady = (result) => {
-            delete this.children[childPid];
-            this._resolvePromise(promiseId, result);
-        }
 
-        this._waitQueues.waitFor(`exit:${child.pid}`, onReady);
-        return promise;
+        await this._waitQueues.waitFor(`exit:${child.pid}`, () => child.exitValue != null);
+        delete this.children[childPid];
+        this._resolvePromise(promiseId, child.exitValue);
+        return child.exitValue;
     }
 
     async waitForAnyChild() {
-        for (const childPid in this.children) {
-            const child = this.children[childPid];
-            if (child.exitValue != null) {
-                delete this.children[childPid];
-                return {pid: childPid, exitValue: child.exitValue};
+        let result = null;
+
+        const checkChildren = () => {
+            for (const childPid in this.children) {
+                const child = this.children[childPid];
+                if (child.exitValue != null) {
+                    delete this.children[childPid];
+                    result = {pid: childPid, exitValue: child.exitValue};
+                    break;
+                }
             }
+            return result != null;
         }
 
         const {promise, promiseId} = this._syscallPromise("wait");
-        const onReady = ({pid, exitValue}) => {
-            delete this.children[pid];
-            this._resolvePromise(promiseId, {pid, exitValue});
-        }
 
-        this._waitQueues.waitFor(`childrenExit:${this.pid}`, onReady);
-        
-        return await promise;
+        await this._waitQueues.waitFor(`childrenExit:${this.pid}`, checkChildren);
+
+        const {pid, exitValue} = result;
+        delete this.children[pid];
+        this._resolvePromise(promiseId, result);
+        return result;
     }
 
     sleep(millis) {

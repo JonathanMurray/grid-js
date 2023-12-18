@@ -162,9 +162,9 @@ class Editor {
         }
         
         if (itemId == "SAVE") {
-            this._saveToFile();
+            await this._saveToFile();
         } else if (itemId == "OPEN") {
-            this._pickFileToOpen();
+            await this._pickFileToOpen();
         } else {
             console.log("TODO: handle dropdown: ", itemId);
         } 
@@ -212,9 +212,9 @@ class Editor {
             await writeln("Editor shutting down");
             await syscall("exit");
         } else if (key == "s" && event.ctrlKey) {
-            this._saveToFile();
+            await this._saveToFile();
         } else if (key == "o" && event.ctrlKey) {
-            this._pickFileToOpen();
+            await this._pickFileToOpen();
         } else if (key == "Backspace") {
             this._hasUnsavedChanges = this._doc.erase();
         } else if (key == "Enter") {
@@ -306,7 +306,7 @@ async function main(args) {
     try {
         fd = await syscall("openFile", {filePath, createIfNecessary: true});
     } catch (e) {
-        writeError(e["message"]);
+        await writeError(e["message"]);
         return;
     }
     const text = await syscall("read", {fd});

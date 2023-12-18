@@ -136,7 +136,7 @@ async function main(args) {
                 )
         );
 
-    init(root, socketFd, canvas);
+    await init(root, socketFd, canvas);
 
     const interval = 30;
     const timer = new PeriodicTimer(interval);
@@ -148,7 +148,7 @@ async function main(args) {
                 canvas.height = event.height;
         
                 root._maxSize = [event.width, event.height];
-                redraw();
+                await redraw();
                 
                 const msg = JSON.stringify({resizeDone: null});
                 await write(msg, socketFd);
@@ -158,7 +158,7 @@ async function main(args) {
         }
         await timer.tick();
         updateAnimation();
-        redraw();
+        await redraw();
     }
 
    

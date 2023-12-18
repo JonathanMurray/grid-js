@@ -2,6 +2,7 @@
 import Mustache from "https://cdnjs.cloudflare.com/ajax/libs/mustache.js/4.2.0/mustache.js";
 import { FileType, assert } from "../shared.mjs";
 import { SysError, Errno } from "./errors.mjs";
+import { WaitQueues } from "./wait-queues.mjs";
 
 const CLASS_FOCUSED = "focused";
 
@@ -30,8 +31,6 @@ function rectInPage(element) {
     return {x: window.scrollX + r.x , y: window.scrollY + r.y, width: r.width, height: r.height};
 }
 
-
-// TODO not needed with strictNullChecks
  /**
   * Work-around for "Object is possibly 'null'" and no !-operator in vanilla js
   * @returns {HTMLElement | null} 
@@ -76,7 +75,6 @@ export class WindowManager {
         
         this.dock = findElement(document, "#dock");
         this.dockHeight = this.dock.getBoundingClientRect().height;
-        console.warn(); //TODO
         findElement(document, "#launcher-icon").addEventListener("mousedown", (event) => {
             this.showLauncher();
 
@@ -634,6 +632,9 @@ class GraphicsSocketFile {
         this._outgoingMessages = [];
         this._waitingReaders = [];
         this._waitingPollers = [];
+
+        this._waitQueues = new WaitQueues();
+        this._waitQueues.addQueue("outgoing");
     }
 
     open() {
@@ -644,10 +645,8 @@ class GraphicsSocketFile {
         this._isOpen = false;
     }
 
-    async requestWriteAt(_charIdx, writer) {
+    async writeAt(_charIdx, text) {
         assert(this._isOpen);
-        const text = writer();
-        console.log(text);
         let request;
         try {
             request = JSON.parse(text);
@@ -665,27 +664,17 @@ class GraphicsSocketFile {
 
     _addOutgoingMessage(msg) {
         this._outgoingMessages.push(msg);
-        this._handleWaiting();
+        this._waitQueues.wakeup("outgoing");
     }
     
-    requestReadAt(_charIdx, {reader}) {
+    async readAt(_charIdx) {
         assert(this._isOpen);
-        this._waitingReaders.push(reader);
-        this._handleWaiting();
-    }
 
-    _handleWaiting() {
-        while (this._waitingReaders.length > 0 && this._outgoingMessages.length > 0) {
-            const reader = this._waitingReaders.shift();
-            const text = JSON.stringify(this._outgoingMessages);
-            this._outgoingMessages = [];
-            reader({text});
-        }
+        await this._waitQueues.waitFor("outgoing", () => this._outgoingMessages.length > 0);
 
-        while (this._waitingPollers.length > 0 && this._outgoingMessages.length > 0) {
-            const poller = this._waitingPollers.shift();
-            poller(); // signal to the polling process that the fd is ready for reading
-        }
+        const text = JSON.stringify(this._outgoingMessages);
+        this._outgoingMessages = [];
+        return text;
     }
 
     seek() {
@@ -698,8 +687,7 @@ class GraphicsSocketFile {
         };
     }
 
-    pollRead(resolver) {
-        this._waitingPollers.push(resolver);
-        this._handleWaiting();
+    async pollRead() {
+        await this._waitQueues.waitFor("outgoing", () => this._outgoingMessages.length > 0);
     }
 }

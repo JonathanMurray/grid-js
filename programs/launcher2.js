@@ -71,7 +71,7 @@ async function main(args) {
             const key = event.key;
             if (key == "Enter") {
                 await maybeLaunch();
-                redraw();
+                await redraw();
             } 
         }
     }

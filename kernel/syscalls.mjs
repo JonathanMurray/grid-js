@@ -1,7 +1,7 @@
 import { SysError } from "./errors.mjs";
 import { SignalBehaviour } from "./process.mjs";
 import { System } from "./system.mjs"
-import { FileOpenMode } from "/shared.mjs";
+import { FileOpenMode } from "../shared.mjs";
 
 function validateSyscallArgs(args, required, optional=[]) {
     if (typeof args != "object") {
@@ -31,7 +31,7 @@ export class Syscalls {
     }
 
     joinNewSessionAndProcessGroup(proc, args) {
-        proc.joinNewSessionAndProcessGroup();
+        return proc.joinNewSessionAndProcessGroup();
     }
 
     /** PTY ------------------------------------- */

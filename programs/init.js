@@ -9,8 +9,11 @@ async function main(args) {
     //await system._spawnProcess({programPath: "/bin/editor", args: [], fds: {1: consoleStream}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
 
     while (true) {
-        // TODO handle child crash
-        const {pid, exitValue} = await syscall("waitForExit", {pid: "ANY_CHILD"});
-        console.log(`[init] child [${pid}] exited: ${exitValue}`, exitValue);
+        try {
+            const {pid, exitValue} = await syscall("waitForExit", {pid: "ANY_CHILD"});
+            console.log(`[init] child [${pid}] exited: ${exitValue}`, exitValue);
+        } catch (e) {
+            console.log(`[init] child error: ${e["exitError"]}`);
+        }
     }
 }

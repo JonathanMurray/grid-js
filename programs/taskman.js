@@ -69,7 +69,7 @@ async function main(args) {
              
     let nextUpdateAt = Date.now();
 
-    init(root, socketFd, canvas);
+    await init(root, socketFd, canvas);
 
     while (true) {
         for await (const {name, event} of getEvents(nextUpdateAt - Date.now())) {
@@ -79,7 +79,7 @@ async function main(args) {
                 canvas.height = event.height;
         
                 root._maxSize = [event.width, event.height];
-                redraw();
+                await redraw();
                 
                 const msg = JSON.stringify({resizeDone: null});
                 await write(msg, socketFd);
@@ -103,7 +103,7 @@ async function main(args) {
             }
             procTable.setRows(programRows); 
     
-            redraw();
+            await redraw();
         
             nextUpdateAt = now + 1000;
         }

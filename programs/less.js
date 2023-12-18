@@ -143,7 +143,7 @@ async function run(contentFd) {
     while (true) {
         await render();
         const input = await read(ptyInputFd);
-
+                
         let isNumber = /^\d+$/.test(input);
         if (isNumber) {
             inputBuffer += input;

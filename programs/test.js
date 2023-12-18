@@ -1,17 +1,17 @@
 "use strict";
 
-import { writeln } from "/lib/stdlib.mjs";
+import { read, writeln } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
 async function main(args) {
 
-    const fd = await syscall("openFile", {filePath: "textfile"});
+    const fd = await syscall("openFile", {filePath: "/dev/pipe"});
     await writeln(`opened file: ${fd}`);
 
-    let text = await syscall("read", {fd});
-    await writeln(`Read text: '${text}'`);
+    let text = await writeln("hello", fd);
+    await writeln(`wrote text`);
 
-    text = await syscall("read", {fd});
+    text = await read(fd);
     await writeln(`Read text: '${text}'`);
     
 }
