@@ -83,8 +83,9 @@ async function bootSystem() {
     
     const consoleStream = system._addOpenFileDescription(system._lookupFile(["dev", "con"]), FileOpenMode.READ_WRITE, "/dev/con");
 
-    await system._spawnProcess({programPath: "/sys/init", args: [], fds: {1: consoleStream.duplicate()}, ppid: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
+    await system._spawnProcess({programPath: "/sys/init", args: [], fds: {1: consoleStream.duplicate()}, parent: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
 
+    return system;
 }
 
 async function fetchProgram(programName) {

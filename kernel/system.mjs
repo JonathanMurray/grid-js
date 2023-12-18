@@ -1,14 +1,16 @@
 "use strict";
 
 
-import {TextFile, BrowserConsoleFile, NullFile, PipeFile, OpenFileDescription, FileDescriptor, PseudoTerminal, Directory} from "./io.mjs";
+import {TextFile, PipeFile, OpenFileDescription, FileDescriptor, PseudoTerminal} from "./io.mjs";
 import { WindowManager } from "./window-manager.mjs";
 import { Process } from "./process.mjs";
 import { Syscalls } from "./syscalls.mjs";
 import { SysError, WaitError } from "./errors.mjs";
 import { Errno } from "./errors.mjs";
 import { FileOpenMode, FileType, assert, resolvePath } from "../shared.mjs";
+import { WaitQueues } from "./wait-queues.mjs";
 
+const INIT_PID = 1;
 
 export class System {
 
@@ -16,7 +18,7 @@ export class System {
         this._rootDir = rootDir;
 
         this._syscalls = new Syscalls(this);
-        this._nextPid = 1;
+        this._nextPid = INIT_PID;
         this._processes = {};
         this._pseudoTerminals = {};
         this._windowManager = null;
@@ -26,6 +28,8 @@ export class System {
         this.openFileDescriptions = {};
 
         this._nextUnnamedPipeId = 1;
+
+        this._waitQueues = new WaitQueues();
     }
 
     async initWindowManager() {
@@ -35,8 +39,8 @@ export class System {
         const self = this;
         async function spawnFromUi(programPath) {
             const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
-            const ppid = 1; // init's child
-            await self._spawnProcess({programPath, args: [], fds, ppid, pgid: "START_NEW", sid: null, workingDirectory: "/"});    
+            const parent = self._processes[INIT_PID];
+            await self._spawnProcess({programPath, args: [], fds, parent, pgid: "START_NEW", sid: null, workingDirectory: "/"});    
         }
         
         this._windowManager = await WindowManager.init(spawnFromUi);
@@ -65,8 +69,8 @@ export class System {
         return result;
     }
 
-    procWaitForOtherProcessToExit(proc, pidToWaitFor, nonBlocking) {
-        const procToWaitFor = this.process(pidToWaitFor);
+    procWaitForChild(proc, childPid, nonBlocking) {
+        
 
         function throwIfError(exitValue) {
             if (exitValue instanceof Error) {
@@ -77,22 +81,25 @@ export class System {
             return exitValue;
         }
 
-        if (nonBlocking) {
-            if (procToWaitFor.exitValue != null) {
-                return throwIfError(procToWaitFor.exitValue);
-            } else {
-                throw {name: "SysError", message: "process is still running", errno: Errno.WOULDBLOCK};
-            }
-        }
-
-        //console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
         const self = this;
-        return proc.waitForOtherToExit(procToWaitFor).then((exitValue) => {
-            console.log(`${proc.pid} successfully waited for ${pidToWaitFor} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
-            delete self._processes[pidToWaitFor];
-            //console.log("After deletion; processes: ", self.processes);
-            return throwIfError(exitValue);
-        });
+        if (childPid == "ANY_CHILD") {
+            assert(!nonBlocking);
+            return proc.waitForAnyChild().then(({pid, exitValue}) => {
+                console.log(`${proc.pid} successfully waited for any child (${pid}) to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
+                delete self._processes[pid];
+                //console.log("After deletion; processes: ", self.processes);
+                return throwIfError({pid, exitValue});
+            });
+        } else {
+            //console.debug(pid + " Waiting for process " + pidToWaitFor + " to exit...");
+   
+            return proc.waitForChild(childPid, nonBlocking).then((exitValue) => {
+                console.log(`${proc.pid} successfully waited for ${childPid} to exit. Exit value: ${JSON.stringify(exitValue)}`, exitValue);
+                delete self._processes[childPid];
+                //console.log("After deletion; processes: ", self.processes);
+                return throwIfError(exitValue);
+            });
+        }
     }
     
     handleMessageFromWorker(pid, message) {
@@ -149,7 +156,7 @@ export class System {
         return file;
     }
 
-    async _spawnProcess({programPath, args, fds, ppid, pgid, sid, workingDirectory}) {
+    async _spawnProcess({programPath, args, fds, parent, pgid, sid, workingDirectory}) {
         assert(args != undefined);
 
         // We assume that programPath is absolute
@@ -179,8 +186,10 @@ export class System {
             sid = pid;  // The new process becomes leader of a new session
         }
 
+        const ppid = parent != null ? parent.pid : null;
+
         const worker = new Worker("kernel/process-worker.mjs", {name: `[${pid}] ${programPath}`, type: "module"});
-        const proc = new Process(worker, code, programPath, args, pid, fds, ppid, pgid, sid, workingDirectory);
+        const proc = new Process(worker, code, programPath, args, pid, fds, ppid, pgid, sid, workingDirectory, this._waitQueues);
         this._processes[pid] = proc;
 
         console.log(`[${pid}] NEW PROCESS (${programPath}). parent=${ppid}, group=${pgid}, session=${sid}`);
@@ -194,6 +203,10 @@ export class System {
             setWorkerInitialized();
         };
         await isWorkerInitialized;
+
+        if (parent != null) {
+            parent.children[pid] = proc;
+        }
 
         worker.onmessage = (msg) => this.handleMessageFromWorker(pid, msg);
         worker.postMessage({startProcess: {programName: programPath, code, args, pid}});
@@ -215,11 +228,16 @@ export class System {
         if (proc.exitValue == null) {
             proc.onExit(exitValue);
 
+            for (const child of Object.values(proc.children)) {
+                child.ppid = INIT_PID;
+                this._processes[INIT_PID].children[child.pid] = child;
+            }
+
             this._windowManager.removeWindowIfExists(pid);
             
             // TODO Handle this inside PTY close() instead?
             if (proc.pid == proc.sid && proc.sid in this._pseudoTerminals) {
-                console.log(`[${proc.pid}] Session leader controlling PTTY dies. Sending HUP to foreground process group.`)
+                console.log(`[${proc.pid}] Session leader controlling PTTY dies. Sending HUP (hangup) to foreground process group.`)
                 const pty = this._pseudoTerminals[proc.sid];
                 this.sendSignalToProcessGroup("hangup", pty.foreground_pgid);
                 delete this._pseudoTerminals[proc.sid];
@@ -361,7 +379,7 @@ export class System {
             // Inherit the parent's working directory
             const workingDirectory = proc.workingDirectory;
 
-            return this._spawnProcess({programPath, args, fds: fileDescriptors, ppid: proc.pid, pgid, sid, workingDirectory});
+            return this._spawnProcess({programPath, args, fds: fileDescriptors, parent: proc, pgid, sid, workingDirectory});
         } catch (e) {
 
             // Normally, a process closes its file descriptors upon exit, but here we failed to spawn the process.

@@ -174,11 +174,11 @@ export class Syscalls {
 
     waitForExit(proc, args) {
         let {pid, nonBlocking} = validateSyscallArgs(args, ["pid"], ["nonBlocking"]);
-        if (!Number.isInteger(pid)) {
+        if (!(Number.isInteger(pid) || pid === "ANY_CHILD")) {
             throw new SysError(`invalid pid arg: ${JSON.stringify(pid)}`)
         }
 
-        return this.system.procWaitForOtherProcessToExit(proc, pid, nonBlocking);
+        return this.system.procWaitForChild(proc, pid, nonBlocking);
     }
 
     graphics(proc, args) {

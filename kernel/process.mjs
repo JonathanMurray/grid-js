@@ -1,5 +1,6 @@
 import { assert } from "../shared.mjs";
-import { SysError } from "./errors.mjs";
+import { Errno, SysError } from "./errors.mjs";
+import { WaitQueues } from "./wait-queues.mjs";
 
 export const SignalBehaviour = {
     EXIT: "EXIT",
@@ -10,7 +11,10 @@ export const SignalBehaviour = {
 
 export class Process {
 
-    constructor(worker, code, programName, args, pid, fds, ppid, pgid, sid, workingDirectory) {
+    /**
+     * @param {WaitQueues} waitQueues
+     */
+    constructor(worker, code, programName, args, pid, fds, ppid, pgid, sid, workingDirectory, waitQueues) {
         assert(fds != undefined);
         assert(Number.isInteger(pid));
         assert(Number.isInteger(pgid));
@@ -24,6 +28,9 @@ export class Process {
         this.sid = sid; // Session ID
         this.args = args;
         this.workingDirectory = workingDirectory;
+        this._waitQueues = waitQueues;
+        this._waitQueues.addQueue(`exit:${pid}`);
+        this._waitQueues.addQueue(`childrenExit:${pid}`);
         
         /** Maps fd (int) to FileDescriptor
          * By convention, 0=stdin, 1=stdout
@@ -39,6 +46,8 @@ export class Process {
         
         this.exitValue = null;
         this._exitWaiters = [];
+
+        this.children = {};
 
         this.interruptSignalBehaviour = SignalBehaviour.EXIT;
 
@@ -296,29 +305,53 @@ export class Process {
 
         this.worker.terminate();
 
-        this.handleExitWaiters();
+        const exitQueue = `exit:${this.pid}`;
+        this._waitQueues.wakeup(exitQueue, exitValue); // parent waiting for this process in particular
+        this._waitQueues.wakeup(`childrenExit:${this.ppid}`, {pid: this.pid, exitValue}); // parent waiting for any of its children
+        
+        this._waitQueues.removeQueue(exitQueue);
+        this._waitQueues.removeQueue(`childrenExit:${this.pid}`);
     }
 
-    handleExitWaiters() {
-        if (this.exitValue != null) {
-            for (let waiter of this._exitWaiters) {
-                //console.log(this.pid, "calling waiter");
-                waiter(this.exitValue);
+    waitForChild(childPid, nonBlocking) {
+        const child = this.children[childPid];
+        assert(child != null);
+
+        if (child.exitValue != null) {
+            delete this.children[childPid];
+            return child.exitValue;
+        } else if (nonBlocking) {
+            throw {name: "SysError", message: "process is still running", errno: Errno.WOULDBLOCK};
+        }
+
+        const {promise, promiseId} = this._syscallPromise("wait");
+        const onReady = (result) => {
+            delete this.children[childPid];
+            this._resolvePromise(promiseId, result);
+        }
+
+        this._waitQueues.waitFor(`exit:${child.pid}`, onReady);
+        return promise;
+    }
+
+    async waitForAnyChild() {
+        for (const childPid in this.children) {
+            const child = this.children[childPid];
+            if (child.exitValue != null) {
+                delete this.children[childPid];
+                return {pid: childPid, exitValue: child.exitValue};
             }
         }
-    }
 
-    waitForOtherToExit(otherProc) {
         const {promise, promiseId} = this._syscallPromise("wait");
-        
-        const resolve = exitValue => {
-            //console.log(this.pid, "waitForExit was resolved: ", exitValue);
-            this._resolvePromise(promiseId, exitValue);
+        const onReady = ({pid, exitValue}) => {
+            delete this.children[pid];
+            this._resolvePromise(promiseId, {pid, exitValue});
         }
 
-        otherProc._exitWaiters.push(resolve);
-        otherProc.handleExitWaiters();
-        return promise;
+        this._waitQueues.waitFor(`childrenExit:${this.pid}`, onReady);
+        
+        return await promise;
     }
 
     sleep(millis) {
