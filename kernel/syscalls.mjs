@@ -66,6 +66,13 @@ export class Syscalls {
     getTerminalSize(proc, args) {
         return this.system.controlPseudoTerminal(proc, {getTerminalSize: {}});
     }
+
+    // ioctl
+    // https://man7.org/linux/man-pages/man2/ioctl.2.html
+    controlDevice(proc, args) {
+        const {fd, request} = validateSyscallArgs(args, ["fd", "request"]);
+        return proc.controlDevice(fd, request);
+    }
     /** ------------------------------------------ */
 
 
@@ -110,11 +117,11 @@ export class Syscalls {
     }
 
     openFile(proc, args) {
-        let {filePath, createIfNecessary, mode} = validateSyscallArgs(args, ["filePath"], ["createIfNecessary", "mode"]);
+        let {path, createIfNecessary, mode} = validateSyscallArgs(args, ["path"], ["createIfNecessary", "mode"]);
         if (mode == null) {
             mode = FileOpenMode.READ_WRITE;
         }
-        return this.system.procOpenFile(proc, filePath, {createIfNecessary, mode});
+        return this.system.procOpenFile(proc, path, {createIfNecessary, mode});
     }
 
     getFileStatus(proc, args) {
@@ -179,12 +186,6 @@ export class Syscalls {
         }
 
         return this.system.procWaitForChild(proc, pid, nonBlocking);
-    }
-
-    graphics(proc, args) {
-        let {title, size, resizable, menubarItems} = validateSyscallArgs(args, ["title", "size", "resizable"], ["menubarItems"]);
-        menubarItems = menubarItems || [];
-        return this.system.procSetupGraphics(proc, title, size, resizable, menubarItems);
     }
 
     sleep(proc, args) {

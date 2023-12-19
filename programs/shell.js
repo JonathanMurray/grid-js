@@ -68,7 +68,7 @@ async function handleInputLine(input) {
             finalStdout = shellStdout;
         } else {
             try {
-                finalStdout = await syscall("openFile", {filePath: redirectOutputTo, createIfNecessary: true, mode: FileOpenMode.WRITE});
+                finalStdout = await syscall("openFile", {path: redirectOutputTo, createIfNecessary: true, mode: FileOpenMode.WRITE});
             } catch (e) {
                 writeError(e["message"]);
                 return;

@@ -131,6 +131,7 @@ export const FileType = {
     PIPE: "PIPE",
     TEXT: "TEXT",
     SOCKET: "SOCKET",
+    DEVICE: "DEVICE",
     DIRECTORY: "DIRECTORY",
 }
 

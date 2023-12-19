@@ -21,7 +21,6 @@ export class System {
         this._nextPid = INIT_PID;
         this._processes = {};
         this._pseudoTerminals = {};
-        this._windowManager = null;
 
         // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
         this._nextOpenFileDescriptionId = 1;
@@ -33,17 +32,16 @@ export class System {
     }
 
     async initWindowManager() {
-        assert(this._windowManager == null);
-
-        const nullStream = this._addOpenFileDescription(this._lookupFile(["dev", "null"]), FileOpenMode.READ_WRITE, "/dev/null");
+        const nullStream = this._addOpenFileDescription(this._lookupFile(["dev", "null"]), FileOpenMode.READ_WRITE, "/dev/null", null);
         const self = this;
         async function spawnFromUi(programPath) {
             const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
             const parent = self._processes[INIT_PID];
             await self._spawnProcess({programPath, args: [], fds, parent, pgid: "START_NEW", sid: null, workingDirectory: "/"});    
         }
-        
-        this._windowManager = await WindowManager.init(spawnFromUi);
+
+        const graphicsDevice = await WindowManager.init(spawnFromUi);
+        this._lookupFile(["dev"]).createDirEntry("graphics", graphicsDevice);
     }
 
     writeInputFromBrowser(text) {
@@ -213,13 +211,6 @@ export class System {
         return pid;
     }
 
-    async procSetupGraphics(proc, title, size, resizable, menubarItems) {
-        const {socketFile, canvas} = await this._windowManager.setupGraphics(proc, title, size, resizable, menubarItems);
-        const fileDescriptor = this._addOpenFileDescription(socketFile, FileOpenMode.READ_WRITE, "[graphicssocket]");
-        const socketFd = proc.addFileDescriptor(fileDescriptor);
-        return {socketFd, canvas};
-    }
-
     onProcessExit(proc, exitValue) {
         const pid = proc.pid;
         assert(pid != undefined);
@@ -231,18 +222,6 @@ export class System {
                 child.ppid = INIT_PID;
                 this._processes[INIT_PID].children[child.pid] = child;
             }
-
-            this._windowManager.removeWindowIfExists(pid);
-            
-            // TODO Handle this inside PTY close() instead?
-            if (proc.pid == proc.sid && proc.sid in this._pseudoTerminals) {
-                console.log(`[${proc.pid}] Session leader controlling PTTY dies. Sending HUP (hangup) to foreground process group.`)
-                const pty = this._pseudoTerminals[proc.sid];
-                this.sendSignalToProcessGroup("hangup", pty.foreground_pgid);
-                delete this._pseudoTerminals[proc.sid];
-            }
-    
-            //console.log("Pseudo terminal sids: ", Object.keys(this.pseudoTerminals));
         }
     }
 
@@ -285,15 +264,15 @@ export class System {
             }
         }
 
-        const fileDescriptor = this._addOpenFileDescription(file, mode, path);
+        const fileDescriptor = this._addOpenFileDescription(file, mode, path, proc);
         const fd = proc.addFileDescriptor(fileDescriptor);
         return fd;
     }
 
-    _addOpenFileDescription(file, mode, filePath) {
+    _addOpenFileDescription(file, mode, filePath, openerProc) {
         assert(file != null);
         const id = this._nextOpenFileDescriptionId ++;
-        const openFileDescription = new OpenFileDescription(this, id, file, mode, filePath);
+        const openFileDescription = new OpenFileDescription(this, id, file, mode, filePath, openerProc);
         this.openFileDescriptions[id] = openFileDescription;
         return new FileDescriptor(openFileDescription);
     }
@@ -302,8 +281,8 @@ export class System {
         const id = this._nextUnnamedPipeId ++;
         const pipeFile = new PipeFile();
         const filePath = `[pipe:${id}]`;
-        const reader = this._addOpenFileDescription(pipeFile, FileOpenMode.READ, filePath);
-        const writer = this._addOpenFileDescription(pipeFile, FileOpenMode.WRITE, filePath);
+        const reader = this._addOpenFileDescription(pipeFile, FileOpenMode.READ, filePath, proc);
+        const writer = this._addOpenFileDescription(pipeFile, FileOpenMode.WRITE, filePath, proc);
         const readerId = proc.addFileDescriptor(reader);
         const writerId = proc.addFileDescriptor(writer);
         return {readerId, writerId};
@@ -457,13 +436,18 @@ export class System {
         const pty = new PseudoTerminal(this, proc.sid);
         this._pseudoTerminals[proc.sid] = pty;
 
-        const master = this._addOpenFileDescription(pty.master, FileOpenMode.READ_WRITE, `[master:${proc.sid}]`);
-        const slave = this._addOpenFileDescription(pty.slave, FileOpenMode.READ_WRITE, `[slave:${proc.sid}]`);
+        const master = this._addOpenFileDescription(pty.master, FileOpenMode.READ_WRITE, `[master:${proc.sid}]`, proc);
+        const slave = this._addOpenFileDescription(pty.slave, FileOpenMode.READ_WRITE, `[slave:${proc.sid}]`, proc);
 
         const masterId = proc.addFileDescriptor(master);
         const slaveId = proc.addFileDescriptor(slave);
 
         return {master: masterId, slave: slaveId};
+    }
+
+    removePseudoTerminal(sid) {
+        delete this._pseudoTerminals[sid];
+        console.log("Pseudo terminal sids: ", Object.keys(this._pseudoTerminals));
     }
     
     procOpenPseudoTerminalSlave(proc) {
@@ -471,7 +455,7 @@ export class System {
         if (pty == undefined) {
             throw new SysError("no pseudoterminal connected to session");
         }
-        const slave = this._addOpenFileDescription(pty.openNewSlave(), FileOpenMode.READ_WRITE, `[slave:${proc.sid}]`);
+        const slave = this._addOpenFileDescription(pty.openNewSlave(), FileOpenMode.READ_WRITE, `[slave:${proc.sid}]`, proc);
         const slaveId = proc.addFileDescriptor(slave);
         return slaveId;
     }

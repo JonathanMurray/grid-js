@@ -30,7 +30,7 @@ class Editor {
     }
 
     async _saveToFile() {
-        const fd = await syscall("openFile", {filePath: this._filePath});
+        const fd = await syscall("openFile", {path: this._filePath});
         const text = this._doc.lines.join("\n");
         await syscall("write", {fd, text});
         await syscall("setFileLength", {fd, length: text.length});
@@ -304,7 +304,7 @@ async function main(args) {
     console.log("opening: ", filePath);
     let fd;
     try {
-        fd = await syscall("openFile", {filePath, createIfNecessary: true});
+        fd = await syscall("openFile", {path: filePath, createIfNecessary: true});
     } catch (e) {
         await writeError(e["message"]);
         return;

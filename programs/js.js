@@ -9,9 +9,9 @@ import { ANSI_CSI } from "/shared.mjs";
 async function main(args) {
     let fd;
     if (args.length >= 1) {
-        const filePath = args[0];
+        const path = args[0];
         try {
-            fd = await syscall("openFile", {filePath});
+            fd = await syscall("openFile", {path});
         } catch (error) {
             await writeError(error["message"]);
             return;

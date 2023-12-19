@@ -210,6 +210,15 @@ export class Process {
         // Promise was not resolved. It must have been resolved/rejected by someone else already.
         return false;
     }
+
+    controlDevice(fd, request) {
+        assert (fd != null);
+        const fileDescriptor = this.fds[fd];
+        if (fileDescriptor == undefined) {
+            throw new SysError("no such fd");
+        }
+        return fileDescriptor.controlDevice(request);
+    }
     
     async write(fd, text) {
         assert (fd != null);

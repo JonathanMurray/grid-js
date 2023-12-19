@@ -10,10 +10,10 @@ async function main(args) {
 
     try {
         if (args.length >= 1) {
-            const filePath = args[0];
+            const path = args[0];
             let fd;
             try {
-                fd = await syscall("openFile", {filePath});
+                fd = await syscall("openFile", {path});
             } catch (e) {
                 writeError(e["message"]);
                 return;

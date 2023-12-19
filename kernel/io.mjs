@@ -72,6 +72,8 @@ class _PtyMasterFile {
         this._isOpen = false;
         this._pty._pipeToMaster.decrementNumReaders();
         this._pty._pipeToSlave.decrementNumWriters();
+
+        this._pty._onMasterClosed();
     }
 
     writeAt(_charIdx, text) {
@@ -120,6 +122,12 @@ export class PseudoTerminal {
         this.master = new _PtyMasterFile(this);
 
         this._terminalSize = null; // is set on resize
+    }
+
+    _onMasterClosed() {
+        console.log(`[${this._sid}] Session leader controlling PTTY dies. Sending HUP (hangup) to foreground process group.`)
+        this._system.sendSignalToProcessGroup("hangup", this.foreground_pgid);
+        this._system.removePseudoTerminal(this._sid);
     }
 
     openNewSlave() {
@@ -402,7 +410,6 @@ export class NullFile {
             type: FileType.PIPE
         };
     }
-
 }
 
 export class BrowserConsoleFile {
@@ -575,20 +582,22 @@ export class Directory {
     }
 }
 
-
 /** "file" in Linux */
 export class OpenFileDescription {
-    constructor(system, id, file, mode, filePath) {
+    constructor(system, id, file, mode, filePath, openerProc) {
         this._system = system;
         this._id = id;
         this._file = file;
         this._mode = mode;
         this._filePath = filePath;
+        this.openerProc = openerProc;
 
         this._refCount = 1;
         this._charIndex = 0;
 
         this._file.open(mode);
+
+        // Linux file operations: https://www.oreilly.com/library/view/linux-device-drivers/0596000081/ch03s03.html
     }
 
     async write(text) {
@@ -596,7 +605,7 @@ export class OpenFileDescription {
             throw new SysError("write not allowed");
         }
 
-        const result = await this._file.writeAt(this._charIndex, text);
+        const result = await this._file.writeAt(this._charIndex, text, this);
         this._charIndex += text.length;
         return result;
     }
@@ -607,9 +616,13 @@ export class OpenFileDescription {
             throw new SysError("read not allowed");
         }
 
-        const text = await this._file.readAt(this._charIndex, args);
+        const text = await this._file.readAt(this._charIndex, args, this);
         this._charIndex += text.length;
         return text;
+    }
+
+    controlDevice(args) {
+        return this._file.controlDevice(args, this);
     }
 
     seek(position) {
@@ -622,7 +635,7 @@ export class OpenFileDescription {
         assert(this._refCount >= 0);
 
         if (this._refCount == 0) {
-            this._file.close(this._mode);
+            this._file.close(this._mode, this);
             delete this._system.openFileDescriptions[this._id];
         }
     }
@@ -645,11 +658,14 @@ export class OpenFileDescription {
     }
 
     pollRead() {
-        return this._file.pollRead();
+        return this._file.pollRead(this);
     }
 }
 
 export class FileDescriptor {
+    /**
+     * @param {OpenFileDescription} openFileDescription 
+     */
     constructor(openFileDescription) {
         this._openFileDescription = openFileDescription;
         this._isOpen = true;
@@ -663,6 +679,11 @@ export class FileDescriptor {
     read(args) {
         assert(this._isOpen);
         return this._openFileDescription.read(args);
+    }
+
+    controlDevice(args) {
+        assert(this._isOpen);
+        return this._openFileDescription.controlDevice(args);
     }
 
     close() {

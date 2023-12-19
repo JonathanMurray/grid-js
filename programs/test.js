@@ -5,7 +5,7 @@ import { syscall } from "/lib/sys.mjs";
 
 async function main(args) {
 
-    const fd = await syscall("openFile", {filePath: "/dev/pipe"});
+    const fd = await syscall("openFile", {path: "/dev/pipe"});
     await writeln(`opened file: ${fd}`);
 
     let text = await writeln("hello", fd);

@@ -51,14 +51,15 @@ export class WindowManager {
     static async init(launchProgram) {
         const screenArea = await WindowManager.render("screen-area.mustache");
         document.querySelector("body").appendChild(screenArea);
-        return new WindowManager(screenArea, launchProgram);
+        const windowManager = new WindowManager(screenArea, launchProgram);
+        return windowManager._graphicsDevice;
     }
 
     constructor(screenArea, spawnProgram) {
         this.screenArea = screenArea;
         this.spawnProgram = spawnProgram;
 
-        this._procSockets = {};
+        this._graphicsDevice = new GraphicsDevice(this);
 
         this.draggingWindow = null;
         this.maxZIndex = 1;
@@ -273,7 +274,7 @@ export class WindowManager {
     }
 
     sendInputToProcess(window, userInput) {
-        const socket = this._procSockets[window.process.pid];
+        const socket = this._graphicsDevice._sockets[window.process.pid];
         assert(socket != null);
 
         socket._addOutgoingMessage(userInput);
@@ -381,13 +382,6 @@ export class WindowManager {
         }
     }
 
-    async setupGraphics(proc, title, size, resizable, menubarItems) {
-        const socketFile = new GraphicsSocketFile(this, proc);
-        this._procSockets[proc.pid] = socketFile;
-        const canvas = await this._createWindow(title, size, proc, resizable, menubarItems);
-        return {socketFile, canvas};
-    }
-
     async _createWindow(title, [width, height], proc, resizable, menubarItems) {
         const pid = proc.pid;
         title = `${title} (pid=${pid})`
@@ -396,8 +390,6 @@ export class WindowManager {
 
         const win = {element: winElement, process: proc};
 
-       
-    
         const canvasWrapper = findElement(winElement, ".canvas-wrapper");
    
         const canvas = findElement(winElement, "canvas");
@@ -603,9 +595,9 @@ export class WindowManager {
         return offscreenCanvas;
     }
 
-    removeWindowIfExists(pid) {
+    _removeWindow(pid) {
         const win = this.getWindow(pid);
-        if (win) {
+        //if (win) {
             delete this._windows[pid];
             win.element.remove();
             console.log("Removed window. ", this._windows);
@@ -613,7 +605,7 @@ export class WindowManager {
             const dockItem = findElement(document, `#dock-item-${pid}`);
             assert(dockItem, `dock item must exist, pid=${pid}`);
             dockItem.remove();
-        }
+        //}
 
         this.focusFrontMostWindow();
     }
@@ -623,30 +615,18 @@ export class WindowManager {
     }
 }
 
-class GraphicsSocketFile {
-    constructor(windowManager, process) {
+class WindowProcSocket {
+    constructor(windowManager, pid) {
         this._windowManager = windowManager;
-        this._process = process;
+        this._pid = pid;
 
-        this._isOpen = true;
         this._outgoingMessages = [];
-        this._waitingReaders = [];
-        this._waitingPollers = [];
 
         this._waitQueues = new WaitQueues();
         this._waitQueues.addQueue("outgoing");
     }
 
-    open() {
-    }
-
-    close() {
-        assert(this._isOpen);
-        this._isOpen = false;
-    }
-
-    async writeAt(_charIdx, text) {
-        assert(this._isOpen);
+    async write(text) {
         let request;
         try {
             request = JSON.parse(text);
@@ -656,7 +636,7 @@ class GraphicsSocketFile {
         }
 
         if ("resizeDone" in request) {
-            this._windowManager._onResizeDone(this._process.pid);
+            this._windowManager._onResizeDone(this._pid);
         } else {
             assert(false, "Unhandled graphics request: ", request);   
         }
@@ -667,27 +647,81 @@ class GraphicsSocketFile {
         this._waitQueues.wakeup("outgoing");
     }
     
-    async readAt(_charIdx) {
-        assert(this._isOpen);
-
+    async read() {
         await this._waitQueues.waitFor("outgoing", () => this._outgoingMessages.length > 0);
-
         const text = JSON.stringify(this._outgoingMessages);
         this._outgoingMessages = [];
         return text;
     }
 
-    seek() {
-        throw new SysError("cannot seek graphics socket", Errno.SPIPE);
+    async pollRead() {
+        await this._waitQueues.waitFor("outgoing", () => this._outgoingMessages.length > 0);
+    }
+}
+
+export class GraphicsDevice {
+
+    /**
+     * @param {WindowManager} windowManager 
+     */
+    constructor(windowManager) {
+        this._windowManager = windowManager;
+        this._sockets = {};
+    }
+
+    open() {
+    }
+
+    close(_mode, openFileDescription) {
+        const proc = openFileDescription.openerProc;
+        if (proc.pid in this._sockets) {
+            this._windowManager._removeWindow(proc.pid);
+            delete this._sockets[proc.pid];
+        }
+    }
+
+    writeAt(_charIdx, text, openFileDescription) {
+        const socket = this._getSocket(openFileDescription);
+        return socket.write(text);
+    }
+
+    readAt(_charIdx, _args, openFileDescription) {
+        const socket = this._getSocket(openFileDescription);
+        return socket.read();
+    }
+
+    pollRead(openFileDescription) {
+        const socket = this._getSocket(openFileDescription);
+        return socket.pollRead();
+    }
+
+    _getSocket(openFileDescription) {
+        const proc = openFileDescription.openerProc;
+        const socket = this._sockets[proc.pid];
+        if (socket == null) {
+            throw new SysError("no window attached to process")
+        }
+        return socket;
+    }
+
+    async controlDevice(request, openFileDescription) {
+        if ("createWindow" in request) {
+            console.log("createWindow: ", request);
+            let {title, size, resizable, menubarItems} = request.createWindow;
+            const proc = openFileDescription.openerProc;
+            const socket = new WindowProcSocket(this._windowManager, proc.pid);
+            this._sockets[proc.pid] = socket;
+            menubarItems = menubarItems || [];
+            const canvas = await this._windowManager._createWindow(title, size, proc, resizable, menubarItems);
+            return {canvas};
+        } else {
+            assert(false, "Invalid device request: ", request);
+        }
     }
 
     getStatus() {
         return {
-            type: FileType.SOCKET
+            type: FileType.DEVICE
         };
-    }
-
-    async pollRead() {
-        await this._waitQueues.waitFor("outgoing", () => this._outgoingMessages.length > 0);
     }
 }

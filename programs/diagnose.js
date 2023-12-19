@@ -7,7 +7,7 @@ async function main(args) {
     let fileNames = await syscall("listDirectory", {path: "/"});
 
     let children = [];
-    const nullFd = await syscall("openFile", {filePath: "null"});
+    const nullFd = await syscall("openFile", {path: "null"});
     for (let fileName of fileNames) {
         if (fileName == "diagnose") {
             // Don't recurse

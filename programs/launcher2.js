@@ -61,7 +61,9 @@ async function main(args) {
 
     async function maybeLaunch() {
         if (picked != null) {
-            await syscall("spawn", {programPath: `/bin/${picked}`, pgid: "START_NEW"});
+            // Don't let the child inherit the graphics socket, as that would keep the window alive
+            const fds = [0, 1];
+            await syscall("spawn", {programPath: `/bin/${picked}`, pgid: "START_NEW", fds});
             await syscall("exit");
         }
     }
