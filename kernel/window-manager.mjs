@@ -230,6 +230,10 @@ export class WindowManager {
                 this.enableEasyAim();
             }
 
+            if (event.code == "Space" && event.ctrlKey) {
+                this.showLauncher();
+            }
+
             if (this.focused != null && "window" in this.focused) {
                 this.sendInputToProcess(this.focused.window, {name: "keydown", event: {key: event.key, ctrlKey: event.ctrlKey}});
             }

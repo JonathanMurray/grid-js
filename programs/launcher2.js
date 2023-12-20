@@ -74,7 +74,13 @@ async function main(args) {
             if (key == "Enter") {
                 await maybeLaunch();
                 await redraw();
-            } 
+            } else if (key == "s" || key == "ArrowDown") {
+                selectionList.changeSelectedIndexByDelta(1);
+            } else if (key == "w" || key == "ArrowUp") {
+                selectionList.changeSelectedIndexByDelta(-1);
+            } else if (key == "Escape") {
+                await syscall("exit");
+            }
         }
     }
 
