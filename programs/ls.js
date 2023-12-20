@@ -1,6 +1,6 @@
 "use strict";
 
-import { writeln, write, writeError } from "/lib/stdlib.mjs";
+import { writeln, write, writeError, STDIN } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 import { FileType, ansiColor, assert, resolvePath } from "/shared.mjs";
 
@@ -66,7 +66,7 @@ async function listDirectory(path, long) {
             await writeln(`${type.padEnd(widestType)} ${len.padStart(widestLength)} ${filePath}`);
         }
     } else {
-        const terminalSize = await syscall("getTerminalSize");
+        const terminalSize = await syscall("controlDevice", {fd: STDIN, request: {getTerminalSize: null}});
         const terminalWidth = terminalSize[0];
         const interval = 15;
         let lineWidth = 0;

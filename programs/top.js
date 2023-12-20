@@ -6,7 +6,11 @@ import { ansiBackgroundColor, ANSI_ERASE_ENTIRE_SCREEN } from "/shared.mjs";
 
 async function main(args) {
     await syscall("handleInterruptSignal");
-    await syscall("configurePseudoTerminal", {mode: "CHARACTER_AND_SIGINT"});
+
+    // Handle sigint so that we can exit alternate screen upon shutdown
+    const ptyFd = await syscall("openFile", {path: "/dev/tty"});
+    await syscall("controlDevice", {fd: ptyFd, request: {mode: "CHARACTER_AND_SIGINT"}});
+    await syscall("close", {fd: ptyFd});
     
     try {
         await terminal.enterAlternateScreen();

@@ -1,6 +1,5 @@
 import { Directory, TextFile, BrowserConsoleFile, NullFile, PipeFile } from "./io.mjs";
 import { System } from "./system.mjs";
-import { FileOpenMode } from "../shared.mjs";
 
 async function bootSystem() {
 
@@ -79,6 +78,7 @@ async function bootSystem() {
 
     const system = new System(rootDir);
     await system.initWindowManager()
+    await system.initPseudoTerminalSystem();
     
     await system._spawnProcess({programPath: "/sys/init", args: [], fds: {}, parent: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
 

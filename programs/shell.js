@@ -1,9 +1,9 @@
 "use strict";
 
-import { read, writeln, write, log, writeError, terminal, readEntireFile } from "/lib/stdlib.mjs";
-import { ANSI_CSI, TextWithCursor, ansiSetCursorHorizontalAbsolute, ANSI_ERASE_LINE_TO_RIGHT, ASCII_BACKSPACE, ASCII_END_OF_TRANSMISSION, ASCII_END_OF_TEXT, ASCII_CARRIAGE_RETURN, ANSI_CURSOR_BACK, ANSI_CURSOR_FORWARD, ANSI_CURSOR_END_OF_LINE, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiBackgroundColor, ansiColor, FileOpenMode } from "/shared.mjs";
+import { writeln, write, writeError, terminal, readEntireFile, STDIN } from "/lib/stdlib.mjs";
+import { ANSI_CSI, ansiBackgroundColor, ansiColor, FileOpenMode } from "/shared.mjs";
 
-import { syscall } from "/lib/sys.mjs";
+import { getPid, syscall } from "/lib/sys.mjs";
 import { reportCrash} from "/lib/errors.mjs";
 import { Readline } from "/lib/readline.mjs";
 
@@ -222,7 +222,8 @@ const builtins = {
 async function runJobInForeground(job) {
 
     // Give the terminal to the new foreground group
-    await syscall("setPtyForegroundPgid", {pgid: job.pgid});
+    await syscall("controlDevice", {fd: STDIN, request: {setForegroundPgid: job.pgid}});
+
     for (let i = job.procs.length - 1; i >= 0; i--) {
         const pid = job.procs[i].pid;
         try {
@@ -238,8 +239,11 @@ async function runJobInForeground(job) {
         }
     }
 
+    // Shell is process group leader
+    const pgid = getPid();
+
     // Reclaim the terminal
-    await syscall("setPtyForegroundPgid", {toSelf: true});
+    await syscall("controlDevice", {fd: STDIN, request: {setForegroundPgid: pgid}});
 }
 
 async function parse(line) {

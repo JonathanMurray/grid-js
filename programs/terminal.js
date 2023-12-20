@@ -52,8 +52,12 @@ async function main(args) {
 
     let terminalGrid = new TerminalGrid(terminalSize, "black", "white");
 
-    const {master: ptyMaster, slave: ptySlave} = await syscall("createPseudoTerminal");
-    await syscall("configurePseudoTerminal", {resize: {width: terminalSize[0], height: terminalSize[1]}});
+
+    const ptyMaster = await syscall("openFile", {path: "/dev/ptmx"});
+    const slaveNumber = await syscall("controlDevice", {fd: ptyMaster, request: {getSlaveNumber: null}});
+    const ptySlave = await syscall("openFile", {path: `/dev/pts/${slaveNumber}`});
+
+    await syscall("controlDevice", {fd: ptyMaster, request: {resize: {width: terminalSize[0], height: terminalSize[1]}}});
 
     let childPid;
 
@@ -74,13 +78,13 @@ async function main(args) {
         await syscall("close", {fd: ptySlave});
 
         const childPgid = childPid; // The child is process group leader
-        await syscall("setPtyForegroundPgid", {pgid: childPgid});
+        await syscall("controlDevice", {fd: ptyMaster, request: {setForegroundPgid: childPgid}});
 
         async function recomputeTerminalSize() {
             terminalSize = [Math.floor(canvas.width/ cellSize[0]), Math.floor(canvas.height / cellSize[1])];
             terminalGrid.resize(terminalSize);
             draw();
-            await syscall("configurePseudoTerminal", {resize: {width: terminalSize[0], height: terminalSize[1]}});
+            await syscall("controlDevice", {fd: ptyMaster, request: {resize: {width: terminalSize[0], height: terminalSize[1]}}});
         }
 
         async function changeFontSize(modifier) {

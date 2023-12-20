@@ -228,14 +228,11 @@ export class Process {
         }
         const {promise, promiseId} = this._syscallPromise("write");
 
-        try {
-            const result = await fileDescriptor.write(text);
-            this._resolvePromise(promiseId);
-            return result;
-        } catch (e) {
-            this._rejectPromise(promiseId, e);
-            throw e;
-        } 
+        fileDescriptor.write(text)
+            .then(result => this._resolvePromise(promiseId, result))
+            .catch(e => this._rejectPromise(promiseId, e));
+
+        return promise; 
     }
 
     async read(fd, nonBlocking) {
@@ -243,14 +240,11 @@ export class Process {
         assert(fileDescriptor != undefined, `No such fd: ${fd}. file descriptors: ${Object.keys(this.fds)}`)
         const {promise, promiseId} = this._syscallPromise("read");
 
-        try {
-            const text = await fileDescriptor.read({proc: this, nonBlocking});
-            this._resolvePromise(promiseId, text);
-            return text;
-        } catch (e) {
-            this._rejectPromise(promiseId, e);
-            throw e;
-        } 
+        fileDescriptor.read({proc: this, nonBlocking})
+            .then(text => this._resolvePromise(promiseId, text))
+            .catch(e => this._rejectPromise(promiseId, e));
+        
+        return promise;
     }
 
     async pollRead(fds, timeoutMillis) {
@@ -326,10 +320,13 @@ export class Process {
 
         const {promise, promiseId} = this._syscallPromise("wait");
 
-        await this._waitQueues.waitFor(`exit:${child.pid}`, () => child.exitValue != null);
-        delete this.children[childPid];
-        this._resolvePromise(promiseId, child.exitValue);
-        return child.exitValue;
+        this._waitQueues.waitFor(`exit:${child.pid}`, () => child.exitValue != null)
+            .then(() => {
+                delete this.children[childPid];
+                this._resolvePromise(promiseId, child.exitValue);
+            });
+
+        return promise;
     }
 
     async waitForAnyChild() {
@@ -349,12 +346,14 @@ export class Process {
 
         const {promise, promiseId} = this._syscallPromise("wait");
 
-        await this._waitQueues.waitFor(`childrenExit:${this.pid}`, checkChildren);
+        this._waitQueues.waitFor(`childrenExit:${this.pid}`, checkChildren)
+            .then(() => {
+                const {pid, exitValue} = result;
+                delete this.children[pid];
+                this._resolvePromise(promiseId, result);
+            });
 
-        const {pid, exitValue} = result;
-        delete this.children[pid];
-        this._resolvePromise(promiseId, result);
-        return result;
+        return promise;
     }
 
     sleep(millis) {

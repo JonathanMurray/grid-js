@@ -15,7 +15,7 @@ async function main(args) {
             try {
                 fd = await syscall("openFile", {path});
             } catch (e) {
-                writeError(e["message"]);
+                await writeError(e["message"]);
                 return;
             }
             await run(fd);
@@ -23,7 +23,7 @@ async function main(args) {
             const stdin = 0;
             const status = await syscall("getFileStatus", {fd: stdin});
             if (status.type == FileType.PTY) {
-                writeError("specify file or use non-pty stdin")
+                await writeError("specify file or use non-pty stdin")
                 return;
             }
             await run(stdin);
@@ -40,10 +40,10 @@ async function main(args) {
 async function run(contentFd) {
 
     // https://unix.stackexchange.com/questions/452757/how-does-less-take-data-from-stdin-while-still-be-able-to-read-commands-from-u
-    const ptyInputFd = await syscall("openPseudoTerminalSlave");
+    const ptyInputFd = await syscall("openFile", {path: "/dev/tty"});
 
     await syscall("handleInterruptSignal");
-    await syscall("configurePseudoTerminal", {mode: "CHARACTER_AND_SIGINT"});
+    await syscall("controlDevice", {fd: ptyInputFd, request: {mode: "CHARACTER_AND_SIGINT"}});
     await terminal.enterAlternateScreen();
 
     let lines;
@@ -56,7 +56,7 @@ async function run(contentFd) {
     let lineToRowMapping = null;
     let inputBuffer = "";
 
-    let termsize = await syscall("getTerminalSize");
+    let termsize = await syscall("controlDevice", {fd: ptyInputFd, request: {getTerminalSize: {}}});
 
     async function loadContents() {
         try {
@@ -92,7 +92,7 @@ async function run(contentFd) {
     }
 
     async function onresize() {
-        termsize = await syscall("getTerminalSize");
+        termsize = await syscall("controlDevice", {fd: ptyInputFd, request: {getTerminalSize: {}}});
         await initGrid();
     }
 

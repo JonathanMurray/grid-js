@@ -1,7 +1,7 @@
 "use strict";
 
 
-import {TextFile, PipeFile, OpenFileDescription, FileDescriptor, PseudoTerminal} from "./io.mjs";
+import {TextFile, PipeFile, OpenFileDescription, FileDescriptor} from "./io.mjs";
 import { WindowManager } from "./window-manager.mjs";
 import { Process } from "./process.mjs";
 import { Syscalls } from "./syscalls.mjs";
@@ -9,6 +9,7 @@ import { SysError, WaitError } from "./errors.mjs";
 import { Errno } from "./errors.mjs";
 import { FileOpenMode, FileType, assert, resolvePath } from "../shared.mjs";
 import { WaitQueues } from "./wait-queues.mjs";
+import { initPty } from "./pseudo-terminal.mjs";
 
 const INIT_PID = 1;
 
@@ -20,7 +21,6 @@ export class System {
         this._syscalls = new Syscalls(this);
         this._nextPid = INIT_PID;
         this._processes = {};
-        this._pseudoTerminals = {};
 
         // https://man7.org/linux/man-pages/man2/open.2.html#NOTES
         this._nextOpenFileDescriptionId = 1;
@@ -42,6 +42,11 @@ export class System {
 
         const graphicsDevice = await WindowManager.init(spawnFromUi);
         this._lookupFile(["dev"]).createDirEntry("graphics", graphicsDevice);
+    }
+
+    initPseudoTerminalSystem() {
+        const devDir = this._lookupFile(["dev"]);
+        initPty(this, devDir);
     }
 
     writeInputFromBrowser(text) {
@@ -425,46 +430,4 @@ export class System {
         return this._processes[pid];
     }
 
-    createPseudoTerminal(proc) {
-        if (proc.pid != proc.sid) {
-            throw new SysError("only session leader can create a pseudoterminal")
-        }
-        if (proc.pid != proc.pgid) {
-            throw new SysError("only process group leader can create a pseudoterminal")
-        }
-
-        const pty = new PseudoTerminal(this, proc.sid);
-        this._pseudoTerminals[proc.sid] = pty;
-
-        const master = this._addOpenFileDescription(pty.master, FileOpenMode.READ_WRITE, `[master:${proc.sid}]`, proc);
-        const slave = this._addOpenFileDescription(pty.slave, FileOpenMode.READ_WRITE, `[slave:${proc.sid}]`, proc);
-
-        const masterId = proc.addFileDescriptor(master);
-        const slaveId = proc.addFileDescriptor(slave);
-
-        return {master: masterId, slave: slaveId};
-    }
-
-    removePseudoTerminal(sid) {
-        delete this._pseudoTerminals[sid];
-        console.log("Pseudo terminal sids: ", Object.keys(this._pseudoTerminals));
-    }
-    
-    procOpenPseudoTerminalSlave(proc) {
-        const pty = this._pseudoTerminals[proc.sid];
-        if (pty == undefined) {
-            throw new SysError("no pseudoterminal connected to session");
-        }
-        const slave = this._addOpenFileDescription(pty.openNewSlave(), FileOpenMode.READ_WRITE, `[slave:${proc.sid}]`, proc);
-        const slaveId = proc.addFileDescriptor(slave);
-        return slaveId;
-    }
-
-    controlPseudoTerminal(proc, config) {
-        const pty = this._pseudoTerminals[proc.sid];
-        if (pty == undefined) {
-            throw new SysError("no pseudoterminal connected to session");
-        }
-        return pty.control(config);
-    }
 }

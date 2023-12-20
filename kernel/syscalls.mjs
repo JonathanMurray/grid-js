@@ -34,47 +34,12 @@ export class Syscalls {
         return proc.joinNewSessionAndProcessGroup();
     }
 
-    /** PTY ------------------------------------- */
-    createPseudoTerminal(proc, args) {
-        return this.system.createPseudoTerminal(proc);
-    }
-    
-    openPseudoTerminalSlave(proc, args) {
-        return this.system.procOpenPseudoTerminalSlave(proc);
-    }
-
-    configurePseudoTerminal(proc, args) {
-        return this.system.controlPseudoTerminal(proc, args);
-    }
-
-    // TODO: Replace specific pty syscalls with generic iotcl call
-    setPtyForegroundPgid(proc, args) {
-        let {pgid, toSelf} = validateSyscallArgs(args, [], ["pgid", "toSelf"]);
-        if ((pgid == undefined && toSelf == undefined) || (pgid != undefined && toSelf != undefined)) {
-            throw new SysError(`exactly one of pgid and toSelf should be set. pgid=${pgid}, toSelf=${toSelf}`);
-        }
-        if (toSelf) {
-            pgid = proc.pgid;
-        }
-        return this.system.controlPseudoTerminal(proc, {setForegroundPgid: pgid});
-    }
-
-    getPtyForegroundPgid(proc, args) {
-        return this.system.controlPseudoTerminal(proc, {getPtyForegroundPgid: {}});
-    }
-    
-    getTerminalSize(proc, args) {
-        return this.system.controlPseudoTerminal(proc, {getTerminalSize: {}});
-    }
-
     // ioctl
     // https://man7.org/linux/man-pages/man2/ioctl.2.html
     controlDevice(proc, args) {
         const {fd, request} = validateSyscallArgs(args, ["fd", "request"]);
         return proc.controlDevice(fd, request);
     }
-    /** ------------------------------------------ */
-
 
     createPipe(proc, args) {
         return this.system.procCreateUnnamedPipe(proc);
