@@ -4,7 +4,7 @@ import { Errno } from "/kernel/errors.mjs";
 import { DocumentWithCursor } from "/lib/document-cursor.mjs";
 import { writeError, read, write, terminal } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
-import { FileType, ANSI_ERASE_ENTIRE_SCREEN, ANSI_CSI, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN } from "/shared.mjs";
+import { FileType, ANSI_ERASE_ENTIRE_SCREEN, ANSI_CSI, ANSI_CURSOR_UP, ANSI_CURSOR_DOWN, ansiCursorPosition } from "/shared.mjs";
 
 async function main(args) {
 
@@ -97,7 +97,7 @@ async function run(contentFd) {
     }
 
     async function render() {
-        let output = ANSI_ERASE_ENTIRE_SCREEN;
+        let output = ANSI_ERASE_ENTIRE_SCREEN + ansiCursorPosition(1, 1);
         let lineNumber = 1;
         for (let i = 0; i < rows.length; i++) {
 

@@ -180,10 +180,6 @@ export class Process {
         return false
     }
 
-    receiveTerminalResizeSignal() {
-        this.worker.postMessage({"terminalResizeSignal": null});;
-    }
-
     _syscallPromise(name) {
         let resolver;
         let rejector;
@@ -296,8 +292,6 @@ export class Process {
             this.fds[fd].close();
         }
         this.fds = {};
-
-        this.worker.terminate();
 
         const exitQueue = `exit:${this.pid}`;
         this._waitQueues.wakeup(exitQueue); // parent waiting for this process in particular

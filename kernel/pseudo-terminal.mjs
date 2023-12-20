@@ -42,11 +42,9 @@ class _PtmxDevice {
     }
 
     close(_mode, openFileDescription) {
-        console.log("Before remove: ", _pseudoTerminals);
         const pty = _pseudoTerminals.find(pty => pty.masterOpenFileId === openFileDescription.id);
         pty._onMasterClosed();
         _pseudoTerminals = _pseudoTerminals.filter(pty => pty.masterOpenFileId !== openFileDescription.id);
-        console.log("After remove: ", _pseudoTerminals);
     }
     
     writeAt(_charIdx, text, openFileDescription) {
@@ -130,8 +128,10 @@ export function initPty(system, devDir) {
     // https://man7.org/linux/man-pages/man4/tty.4.html
     devDir.createDirEntry("tty", new _TtyDevice());
 
-    // For debugging
-    window["pty"] = _pseudoTerminals;
+    if (typeof window != "undefined") {
+        // For debugging
+        window["pty"] = _pseudoTerminals;
+    }
 }
 
 class _TtyDevice {

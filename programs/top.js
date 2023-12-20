@@ -2,7 +2,7 @@
 
 import { write, terminal } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
-import { ansiBackgroundColor, ANSI_ERASE_ENTIRE_SCREEN } from "/shared.mjs";
+import { ansiBackgroundColor, ANSI_ERASE_ENTIRE_SCREEN, ansiCursorPosition } from "/shared.mjs";
 
 async function main(args) {
     await syscall("handleInterruptSignal");
@@ -23,7 +23,7 @@ async function main(args) {
 
             const procs = await syscall("listProcesses");
 
-            let output = ANSI_ERASE_ENTIRE_SCREEN;
+            let output = ANSI_ERASE_ENTIRE_SCREEN + ansiCursorPosition(1, 1);
 
             output += (`${header("sid")}  ${header("pgid")}  ${header("ppid")}  ${header("pid")}  ` + 
                        `${header("activity")} ${header("status")}    ${header("syscalls")} ${header("fds")}    ${header("program")}\n`);

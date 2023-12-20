@@ -2,11 +2,10 @@
 
 
 import {TextFile, PipeFile, OpenFileDescription, FileDescriptor} from "./io.mjs";
-import { WindowManager } from "./window-manager.mjs";
+
 import { Process } from "./process.mjs";
 import { Syscalls } from "./syscalls.mjs";
-import { SysError, WaitError } from "./errors.mjs";
-import { Errno } from "./errors.mjs";
+import { SysError, WaitError, Errno } from "./errors.mjs";
 import { FileOpenMode, FileType, assert, resolvePath } from "../shared.mjs";
 import { WaitQueues } from "./wait-queues.mjs";
 import { initPty } from "./pseudo-terminal.mjs";
@@ -32,12 +31,13 @@ export class System {
     }
 
     async initWindowManager() {
+        const {WindowManager} = await import("./window-manager.mjs");
         const nullStream = this._addOpenFileDescription(this._lookupFile(["dev", "null"]), FileOpenMode.READ_WRITE, "/dev/null", null);
         const self = this;
         async function spawnFromUi(programPath) {
             const fds = {0: nullStream.duplicate(), 1: nullStream.duplicate()};
             const parent = self._processes[INIT_PID];
-            await self._spawnProcess({programPath, args: [], fds, parent, pgid: "START_NEW", sid: null, workingDirectory: "/"});    
+            await self._spawnProcess({programPath, args: [], fds, parent, pgid: "START_NEW", sid: "START_NEW", workingDirectory: "/"});    
         }
 
         const graphicsDevice = await WindowManager.init(spawnFromUi);
@@ -75,7 +75,6 @@ export class System {
     }
 
     async procWaitForChild(proc, childPid, nonBlocking) {
-        
 
         function throwIfError(exitValue) {
             if (exitValue instanceof Error) {
@@ -181,10 +180,10 @@ export class System {
 
         const code = lines.slice(1).join("\n");
         const pid = this._nextPid ++;
-        if (pgid == "START_NEW") {
+        if (pgid === "START_NEW") {
             pgid = pid;  // The new process becomes leader of a new process group
         }
-        if (sid == null) {
+        if (sid === "START_NEW") {
             sid = pid;  // The new process becomes leader of a new session
         }
 
@@ -221,6 +220,7 @@ export class System {
         assert(pid != undefined);
         //console.log(`[${pid}] PROCESS EXIT`, exitValue, `prev exit value: ${proc.exitValue}, fds=`, proc.fds);
         if (proc.exitValue == null) {
+            proc.worker.terminate();
             proc.onExit(exitValue);
 
             for (const child of Object.values(proc.children)) {
@@ -327,7 +327,7 @@ export class System {
         }
     }
 
-    procSpawn(proc, programPath, args, fds, pgid) {
+    procSpawn(proc, programPath, args, fds, pgid, sid) {
 
         let fileDescriptors = {};
         try {
@@ -345,7 +345,7 @@ export class System {
                 }
             }
     
-            if (pgid != "START_NEW") {
+            if (pgid !== "START_NEW") {
                 if (pgid != undefined) {
                     // TODO: Should only be allowed if that group belongs to the same session as this process
                     // Join a specific existing process group
@@ -355,10 +355,13 @@ export class System {
                     pgid = proc.pgid;
                 }
             }
-    
-            // Join the parent's session
-            const sid = proc.sid;
 
+            if (sid !== "START_NEW") {
+                assert(sid === undefined); 
+                // Join the parent's session
+                sid = proc.sid;
+            }
+    
             // Inherit the parent's working directory
             const workingDirectory = proc.workingDirectory;
 
@@ -412,7 +415,7 @@ export class System {
         } else if (signal == "hangup") {
             lethal = true;
         } else if (signal == "terminalResize") {
-            proc.receiveTerminalResizeSignal();
+            proc.worker.postMessage({"terminalResizeSignal": null});;
             lethal = false;
         } else {
             throw new SysError(`no such signal: '${signal}'`);

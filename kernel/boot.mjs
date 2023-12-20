@@ -24,6 +24,7 @@ async function bootSystem() {
         "ls", 
         "plot", 
         "ps", 
+        "remoteshell",
         "shell", 
         "snake", 
         "sudoku", 
@@ -80,7 +81,7 @@ async function bootSystem() {
     await system.initWindowManager()
     await system.initPseudoTerminalSystem();
     
-    await system._spawnProcess({programPath: "/sys/init", args: [], fds: {}, parent: null, pgid: "START_NEW", sid: null, workingDirectory: "/"});
+    await system._spawnProcess({programPath: "/sys/init", args: [], fds: {}, parent: null, pgid: "START_NEW", sid: "START_NEW", workingDirectory: "/"});
 
     return system;
 }

@@ -24,8 +24,8 @@ export const ANSI_CURSOR_END_OF_LINE = ansiSetCursorHorizontalAbsolute(999); // 
 export const ANSI_ERASE_ENTIRE_LINE = `${ANSI_CSI}2K`
 /** EL – Erase In Line (to right)*/
 export const ANSI_ERASE_LINE_TO_RIGHT = `${ANSI_CSI}0K`
-/** ED – Erase In Display (Erase Saved Lines)*/
-export const ANSI_ERASE_ENTIRE_SCREEN = `${ANSI_CSI}3J`
+/** ED – Erase In Display ("Erase All" and "Erase Saved Lines")*/
+export const ANSI_ERASE_ENTIRE_SCREEN = `${ANSI_CSI}2J${ANSI_CSI}3J`
 
 /** Cursor Position Report (request)*/
 export const ANSI_GET_CURSOR_POSITION = `${ANSI_CSI}6n`;

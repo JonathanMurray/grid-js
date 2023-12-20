@@ -1,6 +1,6 @@
 "use strict";
 
-import { writeln, write, writeError, terminal, readEntireFile, STDIN } from "/lib/stdlib.mjs";
+import { writeln, write, writeError, terminal, readEntireFile, STDIN, log } from "/lib/stdlib.mjs";
 import { ANSI_CSI, ansiBackgroundColor, ansiColor, FileOpenMode } from "/shared.mjs";
 
 import { getPid, syscall } from "/lib/sys.mjs";
@@ -10,7 +10,24 @@ import { Readline } from "/lib/readline.mjs";
 let backgroundedJobs = [];
 const readline = new Readline();
 
+async function exitWithUsage() {
+    await writeError("Usage: shell [--open-tty FILENAME]");
+    await syscall("exit");
+}
+
 async function main(args) {
+
+    if (args.length === 2) {
+        if (args[0] !== "--open-tty") {
+            await exitWithUsage();
+        }
+        const path = args[1];
+        await syscall("openFile", {path, mode: FileOpenMode.READ});
+        await syscall("openFile", {path, mode: FileOpenMode.WRITE});
+    } else if (args.length !== 0) {
+        await exitWithUsage();
+    }
+
 
     let config = await readEntireFile("/config.json");
     config = JSON.parse(config)

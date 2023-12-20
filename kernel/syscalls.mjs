@@ -135,13 +135,13 @@ export class Syscalls {
     }
 
     spawn(proc, args) {
-        let {programPath, args: programArgs, fds, pgid} = validateSyscallArgs(args, ["programPath"], ["args", "fds", "pgid"]);
+        let {programPath, args: programArgs, fds, pgid, sid} = validateSyscallArgs(args, ["programPath"], ["args", "fds", "pgid", "sid"]);
 
         if (programArgs == undefined) {
             programArgs = [];
         }
 
-        return this.system.procSpawn(proc, programPath, programArgs, fds, pgid);
+        return this.system.procSpawn(proc, programPath, programArgs, fds, pgid, sid);
     }
 
     waitForExit(proc, args) {
