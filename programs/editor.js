@@ -221,9 +221,17 @@ class Editor {
             this._doc.addLinefeed();
             this._hasUnsavedChanges = true;
         } else if (key == "ArrowLeft") {
-            this._doc.cursorLeft();
+            if (event.ctrlKey) {   
+                this._doc.cursorLeftWord();
+            } else {
+                this._doc.cursorLeft();
+            }
         } else if (key == "ArrowRight") {
-            this._doc.cursorRight();
+            if (event.ctrlKey) {
+                this._doc.cursorRightWord();
+            } else {
+                this._doc.cursorRight();
+            }
         } else if (key == "ArrowUp") {
             this._doc.cursorUp();
         } else if (key == "ArrowDown") {
