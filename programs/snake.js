@@ -1,7 +1,7 @@
 "use strict";
 
 import { Grid } from "/lib/grid.mjs";
-import { createWindow, read, writeln } from "/lib/stdlib.mjs";
+import { createWindow, read, write, writeln } from "/lib/stdlib.mjs";
 import { syscall } from "/lib/sys.mjs";
 
 class Snake {
@@ -224,12 +224,9 @@ async function main(args) {
                         snake.handleKeydown(event);
                     }
                 } else if (name == "windowWasResized") {
-                    console.log("TODO SNAKE RESIZE: ", event);
-                    const shortestSide = Math.min(event.width, event.height);
                     snake.resize(event.width, event.height);
-                    //window.canvas.width = shortestSide;
-                   // window.canvas.height = shortestSide;
-                    //snake.grid.draw(this._ctx);
+                    const msg = JSON.stringify({resizeDone: null});
+                    await write(msg, socketFd);
                 } else if (name == "closeWasClicked") {
                     return;
                 }

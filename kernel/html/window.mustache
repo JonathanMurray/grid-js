@@ -1,7 +1,11 @@
 <div id="program-window-{{pid}}" class="program-window">
     <div class="titlebar">
         {{title}}
-        <span class="titlebar-button">x</span>
+        <div class="titlebar-buttons">
+            {{#titlebarButtons}}
+            <span class="titlebar-button titlebar-{{name}}-button">{{{icon}}}</span>
+            {{/titlebarButtons}}
+        </div>
     </div>
 
     <div class="menubar"></div>

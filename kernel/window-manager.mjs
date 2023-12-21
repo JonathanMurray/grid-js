@@ -1,7 +1,7 @@
 // @ts-ignore
 import Mustache from "https://cdnjs.cloudflare.com/ajax/libs/mustache.js/4.2.0/mustache.js";
 import { FileType, assert } from "../shared.mjs";
-import { SysError, Errno } from "./errors.mjs";
+import { SysError } from "./errors.mjs";
 import { WaitQueues } from "./wait-queues.mjs";
 
 const CLASS_FOCUSED = "focused";
@@ -89,6 +89,11 @@ export class WindowManager {
             const {mouseX, mouseY} = this.translateMouse(event);
             if (this.draggingWindow != null) {
                 const {window, offset} = this.draggingWindow;
+
+                if (window.maximisedFrom != null) {
+                    this.unmaximiseWindow(window);
+                }
+
                 const rect = this.rectWithinScreenArea(window.element);
                 let newX = mouseX - offset[0];
                 let newY = mouseY - offset[1];
@@ -147,23 +152,7 @@ export class WindowManager {
                     newHeight = Math.max(canvasRect.height + dy, WIN_MIN_SIZE[1]);
                 }
        
-
-                if (newX != undefined) {
-                    window.element.style.left = newX.toString();
-                }
-                if (newY != undefined) {
-                    window.element.style.top = newY.toString();
-                }
-                if (newWidth != undefined) {
-                    canvasWrapper.style.width = `${newWidth}px`;
-                    const titlebar = findElement(window.element, ".titlebar");
-                    const padding = Number.parseInt(titlebar.style.paddingLeft.replace("px", ""));
-                    titlebar.style.width = `${newWidth - padding}px`;
-                }
-                if (newHeight != undefined) {
-                    canvasWrapper.style.height = `${newHeight}px`;
-                }
-
+                this.resizeWithoutCommit(window.element, newX, newY, newWidth, newHeight);
             }
         });
 
@@ -180,15 +169,7 @@ export class WindowManager {
             }
 
             if (this.ongoingResize != null) {
-                const window = this.ongoingResize.window;
-                const canvasWrapper = findElement(window.element, ".canvas-wrapper");
-                const canvas = findElement(window.element, "canvas");
-                canvas.style.width = canvasWrapper.style.width;
-                canvas.style.height = canvasWrapper.style.height;
-                const canvasRect = this.rectWithinScreenArea(canvas);
-                const resizeEvent = {width: canvasRect.width * CANVAS_SCALE, height: canvasRect.height * CANVAS_SCALE};
-                canvas.style.display = "none"; // Hide during resize to reduce glitching
-                this.sendInputToProcess(window, {name: "windowWasResized", event: resizeEvent});
+                this.commitWindowSize(this.ongoingResize.window);
                 this.ongoingResize = null;
             }
 
@@ -246,6 +227,36 @@ export class WindowManager {
         })
     }
 
+    resizeWithoutCommit(winElement, newX, newY, newWidth, newHeight) {
+        const canvasWrapper = findElement(winElement, ".canvas-wrapper");
+        if (newX != undefined) {
+            winElement.style.left = newX.toString();
+        }
+        if (newY != undefined) {
+            winElement.style.top = newY.toString();
+        }
+        if (newWidth != undefined) {
+            canvasWrapper.style.width = `${newWidth}px`;
+            const titlebar = findElement(winElement, ".titlebar");
+            const padding = Number.parseInt(titlebar.style.paddingLeft.replace("px", ""));
+            titlebar.style.width = `${newWidth - padding}px`;
+        }
+        if (newHeight != undefined) {
+            canvasWrapper.style.height = `${newHeight}px`;
+        }
+    }
+
+    commitWindowSize(window) {
+        const canvasWrapper = findElement(window.element, ".canvas-wrapper");
+        const canvas = findElement(window.element, "canvas");
+        canvas.style.width = canvasWrapper.style.width;
+        canvas.style.height = canvasWrapper.style.height;
+        const canvasRect = this.rectWithinScreenArea(canvas);
+        const resizeEvent = {width: canvasRect.width * CANVAS_SCALE, height: canvasRect.height * CANVAS_SCALE};
+        canvas.style.display = "none"; // Hide during resize to reduce glitching
+        this.sendInputToProcess(window, {name: "windowWasResized", event: resizeEvent});
+    }
+
     showLauncher() {
         for (let pid in this._windows) {
             const win = this._windows[pid];
@@ -262,7 +273,7 @@ export class WindowManager {
         return {x: rect.x - this.screenRect.x, y: rect.y - this.screenRect.y, width: rect.width, height: rect.height};
     }
 
-    _onResizeDone(pid) {
+    _onAppHandledResize(pid) {
         const canvas = this._windows[pid].element.querySelector("canvas");
         canvas.style.display = "block";
     }
@@ -293,7 +304,7 @@ export class WindowManager {
         let frontMost = null;
         for (let pid in this._windows) {
             const window = this._windows[pid];
-            if (window.element.style.zIndex > maxZIndex) {
+            if (window.minimisedFrom == null && window.element.style.zIndex > maxZIndex) {
                 maxZIndex = window.element.style.zIndex;
                 frontMost = window;
             }
@@ -305,16 +316,18 @@ export class WindowManager {
         const window = this.getFrontMostWindow();
         if (window) {
             this.setFocused({window: window});
+        } else {
+            this.setFocused(null);
         }
     }
 
     setFocused(newFocused) {
         if (this.focused != null) {
             if ("window" in this.focused) {
-                const {element} = this.focused.window;
-                const isStillFocused = newFocused && "dropdown" in newFocused && element.contains(newFocused.dropdown);
+                const win = this.focused.window;
+                const isStillFocused = newFocused && "dropdown" in newFocused && win.element.contains(newFocused.dropdown);
                 if (!isStillFocused) {
-                    element.classList.remove(CLASS_FOCUSED);
+                    win.element.classList.remove(CLASS_FOCUSED);
                     document.querySelectorAll(".dock-item").forEach((item) => item.classList.remove("focused"));
                 }
             } else if ("dropdown" in this.focused) {
@@ -326,13 +339,18 @@ export class WindowManager {
 
         if (newFocused != null) {
             if ("window" in newFocused) {
-                const {element, process} = newFocused.window;
-                const pid = process.pid;
-                findElement(document, `#dock-item-${pid}`).classList.add("focused");
-                if (element.style.zIndex < this.maxZIndex) {
-                    element.style.zIndex = ++this.maxZIndex;
+                const win = newFocused.window;
+
+                if (win.minimisedFrom != null) {
+                    this.unminimiseWindow(win);
                 }
-                element.classList.add(CLASS_FOCUSED);
+
+                const pid = win.process.pid;
+                findElement(document, `#dock-item-${pid}`).classList.add("focused");
+                if (win.element.style.zIndex < this.maxZIndex) {
+                    win.element.style.zIndex = ++this.maxZIndex;
+                }
+                win.element.classList.add(CLASS_FOCUSED);
             } else if ("dropdown" in newFocused) {
                 newFocused.dropdown.classList.add("active");
             } else {
@@ -386,13 +404,51 @@ export class WindowManager {
         }
     }
 
+    minimiseWindow(win) {
+        win.maximisedFrom = null;
+        win.minimisedFrom = this.rectWithinScreenArea(win.element);
+        win.element.style.display = "none";
+        if (this.focused && this.focused.window == win) {
+            this.setFocused(null);
+            this.focusFrontMostWindow();
+        }
+    }
+
+    unminimiseWindow(win) {
+        win.minimisedFrom = null;
+        win.element.style.display = "block";
+    }
+
+    maximiseWindow(win) {
+        win.minimisedFrom = null;
+        win.maximisedFrom = this.rectWithinScreenArea(win.element);
+        const {width, height} = this.screenRect;
+        this.resizeWithoutCommit(win.element, 0, 0, width, height);
+        this.commitWindowSize(win);
+    }
+
+    unmaximiseWindow(win) {
+        const rect = win.maximisedFrom;
+        win.maximisedFrom = null;
+        this.resizeWithoutCommit(win.element, rect.x, rect.y, rect.width, rect.height);
+        this.commitWindowSize(win);
+    }
+
     async _createWindow(title, [width, height], proc, resizable, menubarItems) {
         const pid = proc.pid;
-        title = `${title} (pid=${pid})`
+        title = `${title} [${pid}]`
 
-        const winElement = await WindowManager.render("window.mustache", {pid, title, width, height});
+        let titlebarButtons = [];
+        // our css make these appear in the opposite order
+        titlebarButtons.push({name: "close", icon: "x"});
+        if (resizable) {
+            titlebarButtons.push({name: "maximise", icon: "&#x26F6"});
+        }
+        titlebarButtons.push({name: "minimise", icon: "_"});
 
-        const win = {element: winElement, process: proc};
+        const winElement = await WindowManager.render("window.mustache", {pid, title, width, height, titlebarButtons});
+
+        const win = {element: winElement, process: proc, maximisedFrom: null};
 
         const canvasWrapper = findElement(winElement, ".canvas-wrapper");
    
@@ -470,12 +526,27 @@ export class WindowManager {
             }
         });
 
-        const closeButton = findElement(winElement, ".titlebar-button");
-        closeButton.addEventListener("mousedown", (event) => {
-            // Prevent drag
-            event.stopPropagation();
+        for (const titlebarButton of winElement.querySelectorAll(".titlebar-button")) {
+            titlebarButton.addEventListener("mousedown", (event) => {
+                // Prevent drag
+                event.stopPropagation();
+            });
+        }
+
+        findElement(winElement, ".titlebar-minimise-button").addEventListener("click", (event) => {
+            this.minimiseWindow(win);
         });
-        closeButton.addEventListener("click", (event) => {
+        const maximiseButton = winElement.querySelector(".titlebar-maximise-button");
+        if (maximiseButton) {
+            maximiseButton.addEventListener("click", (event) => {
+                if (win.maximisedFrom == null) {
+                    this.maximiseWindow(win);
+                } else {
+                    this.unmaximiseWindow(win);
+                }
+            });
+        }
+        findElement(winElement, ".titlebar-close-button").addEventListener("click", (event) => {
             this.sendInputToProcess(win, {name: "closeWasClicked"});
         });
 
@@ -582,7 +653,11 @@ export class WindowManager {
         programName = programName.slice(programName.lastIndexOf("/") + 1);
         const dockItem = await WindowManager.render("dock-item.mustache", {pid, programName});
         dockItem.addEventListener("mousedown", (event) => {
-            this.setFocused({window: win});
+            if (this.focused && this.focused.window == win) {
+                this.minimiseWindow(win);
+            } else {
+                this.setFocused({window: win});
+            }
 
              // Prevent window manager from taking focus from the window
              event.stopPropagation();
@@ -620,6 +695,9 @@ export class WindowManager {
 }
 
 class WindowProcSocket {
+    /**
+     * @param {WindowManager} windowManager 
+     */
     constructor(windowManager, pid) {
         this._windowManager = windowManager;
         this._pid = pid;
@@ -640,7 +718,7 @@ class WindowProcSocket {
         }
 
         if ("resizeDone" in request) {
-            this._windowManager._onResizeDone(this._pid);
+            this._windowManager._onAppHandledResize(this._pid);
         } else {
             assert(false, "Unhandled graphics request: ", request);   
         }

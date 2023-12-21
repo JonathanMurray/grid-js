@@ -95,17 +95,20 @@
     color: #000;
 }
 
+
+.titlebar-buttons {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+}
 .titlebar-button {
-    float: right;
     width: 23px;
     height: 23px;
-    position: absolute;
-    top: 2px;
-    right: 2px;
+    float: right;
 
     color: white;
     border: 1px solid #99A;
-    border-radius: 2px;
+    border-radius: 1px;
     cursor: pointer;
     text-align: center;
     vertical-align: middle;

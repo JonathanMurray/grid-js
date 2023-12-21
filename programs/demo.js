@@ -143,7 +143,6 @@ async function main(args) {
     while (true) {
         for await (const {name, event} of getEvents(interval)) {
             if (name == "windowWasResized") {
-                console.log(event);
                 canvas.width = event.width;
                 canvas.height = event.height;
         
